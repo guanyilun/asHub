@@ -13,7 +13,7 @@
   opacity: 0;
   animation: empty-fade-in 0.8s ease 0.3s forwards;
   background:
-    radial-gradient(ellipse at 50% 30%, rgba(212, 168, 83, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 30%, rgba(184, 134, 11, 0.03) 0%, transparent 50%),
     radial-gradient(ellipse at 50% 95%, var(--bg) 0%, transparent 60%);
 }
 

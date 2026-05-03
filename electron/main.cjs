@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -125,7 +125,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: "asHub",
-    backgroundColor: "#18181c",
+    backgroundColor: "#fafaf7",
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -232,6 +232,19 @@ function setupIPC() {
       return { updateAvailable: !!result?.updateInfo, version: result?.updateInfo?.version };
     } catch (err) {
       return { error: err.message };
+    }
+  });
+
+  ipcMain.handle("open-external", async (_event, url) => {
+    // Block dangerous protocols, allow everything else (http, https, mailto, etc.)
+    const BLOCKED = new Set(["javascript:", "file:", "data:", "vbscript:"]);
+    try {
+      const parsed = new URL(url);
+      if (!BLOCKED.has(parsed.protocol)) {
+        await shell.openExternal(url);
+      }
+    } catch {
+      // Invalid URL — ignore
     }
   });
 }

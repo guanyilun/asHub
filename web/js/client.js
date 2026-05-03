@@ -1591,15 +1591,15 @@
   };
 
   const toggleTheme = () => {
-    const current = document.documentElement.getAttribute("data-theme") || "dark";
-    setTheme(current === "dark" ? "light" : "dark");
+    const current = document.documentElement.getAttribute("data-theme") || "light";
+    setTheme(current === "light" ? "dark" : "light");
   };
 
-  // Init: respect stored preference, default dark
+  // Init: respect stored preference, default light
   try {
     const stored = localStorage.getItem(LS_THEME);
-    setTheme(stored === "light" ? "light" : "dark");
-  } catch { setTheme("dark"); }
+    setTheme(stored === "dark" ? "dark" : "light");
+  } catch { setTheme("light"); }
 
   themeToggle?.addEventListener("click", toggleTheme);
 
@@ -1996,5 +1996,35 @@
   configClose?.addEventListener("click", () => setConfigOpen(false));
   configOverlay?.addEventListener("click", (ev) => {
     if (ev.target === configOverlay) setConfigOpen(false);
+  });
+
+  // ── External link interception ────────────────────────────────────
+  // Agent responses may contain hyperlinks. Clicks on external URLs
+  // must never navigate the app window away — instead open them in the
+  // system default browser (Electron) or a new tab (browser).
+  document.addEventListener("click", (ev) => {
+    const a = ev.target.closest("a");
+    if (!a) return;
+    const href = a.getAttribute("href");
+    if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+
+    let isExternal = false;
+    try {
+      const u = new URL(href, location.origin);
+      isExternal = u.origin !== location.origin;
+    } catch {
+      // Relative paths, root-relative paths, etc. — let them through
+      return;
+    }
+
+    if (!isExternal) return; // same-origin link, allow normal navigation
+
+    ev.preventDefault();
+    const url = href;
+    if (window.electronAPI?.openExternal) {
+      window.electronAPI.openExternal(url).catch(() => {});
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
   });
 })();
