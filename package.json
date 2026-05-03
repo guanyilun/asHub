@@ -1,12 +1,12 @@
 {
-  "name": "agent-sh-hub",
-  "version": "0.10.6",
-  "description": "Standalone hub: spawn and supervise headless agent-sh ACP sessions, expose them through a web UI on a single port.",
+  "name": "ashub",
+  "version": "0.10.7",
+  "description": "asHub: spawn and supervise headless agent-sh ACP sessions, expose them through a web UI on a single port.",
   "type": "module",
   "main": "electron/main.cjs",
   "license": "MIT",
   "bin": {
-    "agent-sh-hub": "./bin/agent-sh-hub.js"
+    "ashub": "./bin/ashub.js"
   },
   "scripts": {
     "start": "tsx src/cli.ts",
@@ -19,7 +19,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "agent-sh": "^0.12.18",
+    "agent-sh": "^0.12.20",
     "electron-updater": "^6.8.3",
     "tsx": "^4.7.0"
   },

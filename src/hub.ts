@@ -229,7 +229,7 @@ export function startHub(opts: HubOpts): http.Server {
     console.error("[hub] session restore error:", err);
   }).finally(() => {
     server.listen(opts.port, opts.host, () => {
-      console.error(`agent-sh-hub listening on http://${opts.host}:${opts.port}/`);
+      console.error(`asHub listening on http://${opts.host}:${opts.port}/`);
     });
   });
 

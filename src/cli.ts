@@ -1,9 +1,9 @@
 /**
- * agent-sh-hub CLI entrypoint.
+ * asHub CLI entrypoint.
  *
- *   agent-sh-hub                                 # default: in-process ash
- *   agent-sh-hub --port 8080
- *   agent-sh-hub --backend acp --cmd "claude-code-acp"
+ *   ashub                                 # default: in-process ash
+ *   ashub --port 8080
+ *   ashub --backend acp --cmd "claude-code-acp"
  */
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,10 +53,10 @@ function parseArgs(): Args {
 }
 
 function printHelp(): void {
-  console.log(`agent-sh-hub — supervise headless agent sessions over HTTP
+  console.log(`asHub — supervise headless agent sessions over HTTP
 
 Usage:
-  agent-sh-hub [options]
+  ashub [options]
 
 Options:
   --backend ash|acp     Bridge implementation (default ash)

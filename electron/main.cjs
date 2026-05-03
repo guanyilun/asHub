@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-process.env.AGENT_SH_UNDER_HUB = "1";
+process.env.ASHUB_UNDER = "1";
 
 // =============================================================================
 // CRITICAL FIX: Pre-load tsx and patch module system before ANY imports
@@ -124,7 +124,7 @@ function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "Agent SH Hub",
+    title: "asHub",
     backgroundColor: "#18181c",
     show: false,
     webPreferences: {
@@ -164,7 +164,7 @@ function setupAutoUpdater() {
       dialog.showMessageBox(mainWindow, {
         type: "info",
         title: "发现新版本",
-        message: `Agent SH Hub ${info.version} 已发布`,
+        message: `asHub ${info.version} 已发布`,
         detail: "是否立即下载更新？",
         buttons: ["下载更新", "稍后提醒"],
         defaultId: 0,

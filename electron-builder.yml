@@ -1,5 +1,5 @@
-appId: com.agent-sh.hub
-productName: Agent SH Hub
+appId: com.ashub.app
+productName: asHub
 copyright: Copyright © 2024
 
 files:
@@ -19,7 +19,7 @@ extraResources:
       - "**/*"
 
 mac:
-  artifactName: Agent-SH-Hub-${version}-${arch}.${ext}
+  artifactName: asHub-${version}-${arch}.${ext}
   target:
     - target: dmg
       arch:
@@ -35,7 +35,7 @@ mac:
   icon: electron/icon.icns
 
 win:
-  artifactName: Agent-SH-Hub-Setup-${version}.${ext}
+  artifactName: asHub-Setup-${version}.${ext}
   target:
     - target: nsis
       arch:
@@ -46,7 +46,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
-  shortcutName: Agent SH Hub
+  shortcutName: asHub
 
 linux:
   target:
@@ -58,7 +58,7 @@ linux:
 publish:
   provider: github
   owner: firslov
-  repo: agent-sh-hub
+  repo: ashub
 
 directories:
   output: release

@@ -71,16 +71,16 @@ export class AshBridge extends EventEmitter implements Bridge {
     ];
     await loadBuiltinExtensions(extCtx, headlessDisabled);
 
-    // In Electron (AGENT_SH_UNDER_HUB), tsx's module.register() spawns a
+    // In Electron (ASHUB_UNDER), tsx's module.register() spawns a
     // worker thread that can race with Chromium init.  Yield once so the
     // event loop drains before the first .ts extension import triggers tsx.
-    if (process.env.AGENT_SH_UNDER_HUB) {
+    if (process.env.ASHUB_UNDER) {
       await new Promise<void>((r) => setTimeout(r, 200));
     }
 
     // User extensions (~/.agent-sh/extensions/) load too. Extensions that
     // would conflict with the hub (e.g. web-renderer binding 7878) should
-    // check `process.env.AGENT_SH_UNDER_HUB` and bail early.
+    // check `process.env.ASHUB_UNDER` and bail early.
     const TIMEOUT_MS = 10_000;
     await Promise.race([
       loadExtensions(extCtx),

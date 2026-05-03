@@ -889,8 +889,8 @@
   };
 
   // Shorten an absolute path for sidebar display: strip the home prefix, then
-  // keep at most the last two segments. /Users/yilun/Workspace/agent-sh-hub
-  // becomes ~/…/agent-sh-hub. Keeps the column readable at 220px.
+  // keep at most the last two segments. /Users/yilun/Workspace/ashub
+  // becomes ~/…/ashub. Keeps the column readable at 220px.
   let homeDir = "";
   const shortenCwd = (cwd) => {
     if (!cwd) return "";
