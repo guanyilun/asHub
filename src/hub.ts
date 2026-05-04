@@ -97,18 +97,69 @@ async function saveSessionMeta(session: Session): Promise<void> {
   await fs.promises.writeFile(path.join(SESSIONS_DIR, `${session.id}.meta.json`), JSON.stringify(meta));
 }
 
-function persistReplayFrame(sessionId: string, frame: string): void {
+// ── Batched replay persistence ─────────────────────────────────────────
+// Writing synchronously on every SSE frame (appendFileSync per token) causes
+// UI jank during streaming at 10–50 tokens/sec.  Instead we accumulate frames
+// in memory and flush them in batches with async I/O.
+//
+// persistReplayFile (bulk overwrite on context compaction) drains the buffer
+// first so the file is never corrupted by interleaved writes.  A per-session
+// write-lock (Promise) tracks in-flight async flushes so drain() can await
+// their completion before truncating.
+
+const _writeBufs = new Map<string, { frames: string[]; timer: ReturnType<typeof setTimeout> | null }>();
+const _writeLocks = new Map<string, Promise<void>>();
+const BATCH_FLUSH_MS = 2000;
+
+function _flushBuf(sessionId: string): void {
+  const buf = _writeBufs.get(sessionId);
+  if (!buf || buf.frames.length === 0) return;
+  if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
+  const frames = buf.frames.splice(0);
+  // Ensure the sessions directory exists (mkdirSync is cheap when the dir
+  // already exists, which it almost always does after the first write).
+  try { fs.mkdirSync(SESSIONS_DIR, { recursive: true }); } catch { /* ignore */ }
+  const p = new Promise<void>((resolve) => {
+    fs.appendFile(
+      path.join(SESSIONS_DIR, `${sessionId}.replay.jsonl`),
+      frames.join(""),
+      () => { _writeLocks.delete(sessionId); resolve(); },
+    );
+  });
+  _writeLocks.set(sessionId, p);
+}
+
+async function _drainBuf(sessionId: string): Promise<void> {
+  // Wait for any in-flight async flush to complete before touching the file.
+  const lock = _writeLocks.get(sessionId);
+  if (lock) await lock;
+  const buf = _writeBufs.get(sessionId);
+  if (!buf || buf.frames.length === 0) return;
+  if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
+  const frames = buf.frames.splice(0);
   try {
-    fs.appendFileSync(path.join(SESSIONS_DIR, `${sessionId}.replay.jsonl`), frame);
-  } catch {
-    // Ignore write errors (e.g. disk full)
+    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    fs.appendFileSync(path.join(SESSIONS_DIR, `${sessionId}.replay.jsonl`), frames.join(""));
+  } catch { /* ignore */ }
+}
+
+function persistReplayFrame(sessionId: string, frame: string): void {
+  let buf = _writeBufs.get(sessionId);
+  if (!buf) {
+    buf = { frames: [], timer: null };
+    _writeBufs.set(sessionId, buf);
+  }
+  buf.frames.push(frame);
+  if (!buf.timer) {
+    buf.timer = setTimeout(() => _flushBuf(sessionId), BATCH_FLUSH_MS);
   }
 }
 
-function persistReplayFile(sessionId: string, frames: string[]): void {
+async function persistReplayFile(sessionId: string, frames: string[]): Promise<void> {
+  // Drain any buffered frames and wait for in-flight async writes before
+  // overwriting so the file is never corrupted.
+  await _drainBuf(sessionId);
   try {
-    // Use fully synchronous I/O to avoid a race with persistReplayFrame's
-    // appendFileSync — both touch the same file and must be serialised.
     fs.mkdirSync(SESSIONS_DIR, { recursive: true });
     fs.writeFileSync(path.join(SESSIONS_DIR, `${sessionId}.replay.jsonl`), frames.join(""));
   } catch {
@@ -454,6 +505,16 @@ function routeEvent(session: Session, e: BusEvent): void {
   if (e.name === "agent:queued-done") {
     flushSegment(session);
     pushFrame(session, "agent:processing-done", sseFrame({ ...meta, name: "agent:processing-done" }, {}));
+    // Mirror submit()'s .then() handler for queued turns: persist messages
+    // so restarted sessions restore their state, and auto-generate a title
+    // after the first completed turn.
+    saveSessionMessages(session).catch(() => {});
+    if (!session.firstTurnDone && session.firstQuery) {
+      session.firstTurnDone = true;
+      generateTitleAsync(session).catch((err) =>
+        console.error(`[hub] auto-title failed for ${session.id}:`, err)
+      );
+    }
     return;
   }
 
@@ -693,6 +754,13 @@ function closeSession(res: http.ServerResponse, sessions: Map<string, Session>, 
     try { s.bridge.close(); } catch {}
     sessions.delete(id);
   }
+  // Drop any pending buffered frames and release the in-memory write-buffer
+  // / lock entries for this session.  (The replay file is deleted below, so
+  // flushing would be wasted I/O.)
+  const buf = _writeBufs.get(id);
+  if (buf?.timer) { clearTimeout(buf.timer); }
+  _writeBufs.delete(id);
+  _writeLocks.delete(id);
   deleteSessionFiles(id);
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true }));
@@ -907,6 +975,7 @@ async function dropContext(req: http.IncomingMessage, res: http.ServerResponse, 
     const drop = new Set(indices);
     const kept = buildKeptWithPlaceholders(snap.messages, drop);
     const stats = await session.bridge.compact({ kind: "replace", messages: kept });
+    await truncateReplayAfterCompact(session);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, stats }));
   } catch (err) {
@@ -1007,7 +1076,7 @@ async function truncateReplayAfterCompact(session: Session): Promise<void> {
     }
     if (truncateAt < session.replay.length) {
       session.replay.length = truncateAt;
-      persistReplayFile(session.id, session.replay);
+      await persistReplayFile(session.id, session.replay);
     }
   } catch {
     // If replay truncation fails, the rewind is still valid.
