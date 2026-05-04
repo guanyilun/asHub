@@ -573,6 +573,48 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   letter-spacing: 0.04em;
 }
 
+/* ── Version label ─────────────────────────────────────────────────── */
+.version-label {
+  font-family: 'Geist Mono', 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--radius-pill);
+  transition: all 0.35s var(--ease-out-expo);
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.version-label.visible {
+  opacity: 1;
+}
+
+.version-label.has-update {
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-border);
+  cursor: pointer;
+  animation: version-pulse 3s ease-in-out infinite;
+}
+
+.version-label.has-update:hover {
+  background: var(--accent-soft);
+  color: var(--accent-dim);
+}
+
+@keyframes version-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+  50%      { box-shadow: 0 0 8px 2px var(--accent-glow); }
+}
+
+.version-label.up-to-date {
+  color: var(--text-faint);
+}
+
 /* ── Live terminal ───────────────────────────────────────────────── */
 .live-wrap {
   padding: 0;

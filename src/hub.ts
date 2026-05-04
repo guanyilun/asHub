@@ -14,6 +14,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import type { Bridge, BridgeFactory, BusEvent } from "./bridges/types.js";
 
 export interface HubOpts {
@@ -196,6 +197,7 @@ export function startHub(opts: HubOpts): http.Server {
     if (req.method === "GET" && url === "/api/config") return getConfig(res);
     if (req.method === "PUT" && url === "/api/config") return updateConfig(req, res);
     if (req.method === "POST" && url === "/api/config/reload") return reloadConfig(res);
+    if (req.method === "GET" && url === "/api/version") return getVersion(res);
     if (req.method === "GET" && url === "/sessions") return listSessions(res, sessions);
     if (req.method === "GET" && url.startsWith("/fs")) {
       const params = new URLSearchParams(url.split("?")[1] ?? "");
@@ -258,6 +260,23 @@ export function startHub(opts: HubOpts): http.Server {
   });
 
   return server;
+}
+
+// ── Version ──────────────────────────────────────────────────────────
+
+function getVersion(res: http.ServerResponse): void {
+  const pkgPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+  fs.readFile(pkgPath, "utf-8", (err, raw) => {
+    let version = "0.0.0";
+    if (!err) {
+      try {
+        const pkg = JSON.parse(raw);
+        version = pkg.version || version;
+      } catch { /* ignore */ }
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ version }));
+  });
 }
 
 // ── Config management ────────────────────────────────────────────────

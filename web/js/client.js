@@ -12,6 +12,7 @@
   const sessionList = document.getElementById("sessions");
   const spinner = document.getElementById("spinner");
   const cancelBtn = document.getElementById("cancel-turn");
+  const versionLabel = document.getElementById("version-label");
   let isProcessing = false;
   let isSubmitting = false;
   let currentTurn = -1;       // incremented on each agent:query, used to tag DOM elements
@@ -2245,4 +2246,54 @@
       window.open(url, "_blank", "noopener,noreferrer");
     }
   });
+
+  // ── Version & update check ───────────────────────────────────────────
+  (async () => {
+    if (!versionLabel) return;
+
+    // Fetch current version from the hub API
+    try {
+      const resp = await fetch("/api/version");
+      const data = await resp.json();
+      const current = data.version || "0.0.0";
+      // Guard: if an update event already fired while we were fetching,
+      // don't overwrite the update notification.
+      if (!versionLabel.classList.contains("has-update")) {
+        versionLabel.textContent = `v${current}`;
+        versionLabel.classList.add("visible", "up-to-date");
+        versionLabel.title = `asHub v${current}`;
+      }
+    } catch {
+      if (!versionLabel.classList.contains("has-update")) {
+        versionLabel.textContent = "";
+        versionLabel.title = "";
+      }
+    }
+
+    // Listen for update events from Electron
+    if (window.electronAPI?.onUpdateAvailable) {
+      let updateClickBound = false;
+      window.electronAPI.onUpdateAvailable((newVersion) => {
+        if (!versionLabel) return;
+        versionLabel.textContent = `v${newVersion} available`;
+        versionLabel.classList.add("visible");
+        versionLabel.classList.remove("up-to-date");
+        versionLabel.classList.add("has-update");
+        versionLabel.title = `Update to v${newVersion} — click to download`;
+        if (!updateClickBound) {
+          updateClickBound = true;
+          let checking = false;
+          versionLabel.addEventListener("click", async () => {
+            if (checking) return;
+            checking = true;
+            try {
+              await window.electronAPI.checkForUpdate?.();
+            } finally {
+              checking = false;
+            }
+          });
+        }
+      });
+    }
+  })();
 })();

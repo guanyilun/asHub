@@ -197,6 +197,7 @@ function setupAutoUpdater() {
   autoUpdater.on("update-available", (info) => {
     console.log("[updater] update available:", info.version);
     if (mainWindow) {
+      mainWindow.webContents.send("update-available", info.version);
       dialog.showMessageBox(mainWindow, {
         type: "info",
         title: "发现新版本",
