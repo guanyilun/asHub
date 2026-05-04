@@ -432,7 +432,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .session-title-edit {
   display: block;
-  width: calc(100% - 5rem);
+  width: 100%;
+  box-sizing: border-box;
   background: var(--bg4);
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-xs);
@@ -908,6 +909,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .tool-detail { color: var(--text); }
@@ -1272,6 +1275,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   max-height: 0;
   opacity: 0;
 }
+
+.tool-group.collapsed .tool-group-head { margin-bottom: 0; }
 
 /* ── Tool detail ─────────────────────────────────────────────────── */
 .tool-detail.tool-cmd {

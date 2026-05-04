@@ -1023,11 +1023,11 @@
   const startTitleEdit = (li, instanceId, currentTitle) => {
     // Remove any existing inline edit on other items
     sessionList.querySelectorAll(".session-title-edit").forEach((el) => el.remove());
-    sessionList.querySelectorAll(".session-title").forEach((el) => el.hidden = false);
+    sessionList.querySelectorAll(".session-title").forEach((el) => el.style.display = "");
 
     const titleSpan = li.querySelector(".session-title");
     if (!titleSpan) return;
-    titleSpan.hidden = true;
+    titleSpan.style.display = "none";
 
     const input = document.createElement("input");
     input.type = "text";
@@ -1041,7 +1041,7 @@
     const commit = async () => {
       const val = input.value.trim();
       input.remove();
-      titleSpan.hidden = false;
+      titleSpan.style.display = "";
       if (val && val !== currentTitle) {
         titleSpan.textContent = val;
         try {
