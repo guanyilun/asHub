@@ -111,6 +111,21 @@ Module._resolveFilename = function (request, parent, isMain, options) {
 
 const isDev = !app.isPackaged;
 const HUB_PORT = 7878;
+
+// ── Download mirror ────────────────────────────────────────────────────
+// Route auto-updater traffic through a mirror for faster GitHub access
+// in regions with poor connectivity.  Set to empty to disable.
+const MIRROR_URL = "https://mirror.aihao.world";
+
+function setupMirrorFeed() {
+  if (!MIRROR_URL || isDev) return;
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url: MIRROR_URL,
+  });
+  console.log("[updater] using mirror:", MIRROR_URL);
+}
+
 let mainWindow = null;
 
 function resolveWebRoot() {
@@ -332,6 +347,7 @@ if (!gotTheLock) {
     startServer();
     if (!isDev) {
       setupAutoUpdater();
+      setupMirrorFeed();
       autoUpdater.checkForUpdates().catch((err) => {
         console.error("[updater] initial check failed:", err.message);
       });
