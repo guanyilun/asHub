@@ -113,17 +113,36 @@ const isDev = !app.isPackaged;
 const HUB_PORT = 7878;
 
 // ── Download mirror ────────────────────────────────────────────────────
-// Route auto-updater traffic through a mirror for faster GitHub access
-// in regions with poor connectivity.  Set to empty to disable.
+// Route auto-updater traffic through a mirror for faster GitHub access.
+// Falls back to GitHub directly if the mirror is unreachable.
 const MIRROR_URL = "https://mirror.aihao.world";
+const GITHUB_OWNER = "firslov";
+const GITHUB_REPO = "ashub";
+
+let mirrorFailed = false;
 
 function setupMirrorFeed() {
   if (!MIRROR_URL || isDev) return;
+  mirrorFailed = false;
   autoUpdater.setFeedURL({
     provider: "generic",
     url: MIRROR_URL,
   });
   console.log("[updater] using mirror:", MIRROR_URL);
+}
+
+function fallbackToGitHub() {
+  if (mirrorFailed) return; // already on GitHub
+  mirrorFailed = true;
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: GITHUB_OWNER,
+    repo: GITHUB_REPO,
+  });
+  console.log("[updater] mirror unreachable, fell back to GitHub");
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error("[updater] GitHub fallback check failed:", err.message);
+  });
 }
 
 let mainWindow = null;
@@ -221,13 +240,18 @@ function setupAutoUpdater() {
     console.log("[updater] 当前已是最新版本");
   });
 
-  autoUpdater.on("error", (err) => {
-    console.error("[updater] error:", err.message);
-    dialog.showErrorBox(
-      "更新检测失败",
-      `无法检查更新：\n\n${err.message}`
-    );
-  });
+	autoUpdater.on("error", (err) => {
+	    console.error("[updater] error:", err.message);
+	    // If mirror fails, silently fall back to GitHub and retry
+	    if (!mirrorFailed && MIRROR_URL) {
+	      fallbackToGitHub();
+	      return;
+	    }
+	    dialog.showErrorBox(
+	      "更新检测失败",
+	      `无法检查更新：\n\n${err.message}`
+	    );
+	  });
 }
 
 function setupIPC() {

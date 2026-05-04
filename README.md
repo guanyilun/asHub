@@ -1,91 +1,57 @@
 # asHub
 
-A desktop app that runs one or more [agent-sh](https://github.com/guanyilun/agent-sh) sessions and exposes them through a web UI on a single port.
+Desktop app for [agent-sh](https://github.com/guanyilun/agent-sh) — runs agent-sh sessions and exposes them through a browser UI.
 
 ## Features
 
-- **Multi-session** — sidebar to spawn, switch, and close sessions on the fly
+- **Multi-session** — sidebar to spawn, switch, and close sessions
 - **Session persistence** — conversations survive restarts
-- **Live streaming** — SSE with Markdown, syntax-highlighted code, file diffs, and tool calls
-- **Pluggable backend** — `ash` (in-process) or `acp` (JSON-RPC subprocess)
-- **Context inspection** — view, drop, or rewind conversation messages
+- **Live streaming** — SSE with Markdown, syntax-highlighted code, diff views, and tool calls
 - **Desktop native** — packaged for macOS (Apple Silicon) and Windows (x64)
 
 ## Install
 
-```sh
-# Pre-built binaries — download from GitHub Releases
-# https://github.com/firslov/ashub/releases
+Download from [GitHub Releases](https://github.com/firslov/ashub/releases).
 
-# Or build from source
-git clone https://github.com/firslov/ashub
-cd ashub && npm install && npm link
+> **macOS:** `xattr -dr com.apple.quarantine "/Applications/asHub.app"`
+> **Windows:** Requires PowerShell 7+ (`winget install Microsoft.PowerShell`).
+
+## Dev
+
+```sh
+npm install
+npm run electron:dev        # dev mode
+npm run electron:dist:mac   # build macOS .dmg
+npm run electron:dist:win   # build Windows .exe
 ```
 
-> **macOS:** If Gatekeeper blocks the unsigned app: `xattr -dr com.apple.quarantine "/Applications/asHub.app"`
->
-> **Windows:** Requires **PowerShell 7+** (`pwsh`). Install with `winget install Microsoft.PowerShell`.
-
-## Usage
-
-### Desktop App
+## CLI
 
 ```sh
-npm run electron:dev       # development
-npm run electron:dist:mac  # build macOS .dmg
-npm run electron:dist:win  # build Windows .exe
-```
-
-### CLI / Server Mode
-
-```sh
-ashub                             # default: ash backend, port 7878
+ashub                        # default: port 7878
 ashub --port 8080
-ashub --backend acp --cmd "claude-code-acp"
+ashub --model gpt-4o
 ```
 
-Open <http://127.0.0.1:7878/> and click `+` in the sidebar.
-
-| Flag                  | Default          | Description                           |
-|-----------------------|------------------|---------------------------------------|
-| `--port N`            | `7878`           | HTTP port                             |
-| `--host HOST`         | `127.0.0.1`      | Bind host                             |
-| `--backend ash\|acp`  | `ash`            | Bridge implementation                 |
-| `--model NAME`        | settings default | Model override (ash backend)          |
-| `--provider NAME`     | settings default | Provider override (ash backend)       |
-| `--cmd "CMD ARGS"`    | `agent-sh-acp`   | Spawn command (acp backend)           |
-
-### Backends
-
-- **`ash`** — in-process agent-sh kernel. Uses `~/.agent-sh/settings.json` and user extensions.
-- **`acp`** — spawns one JSON-RPC subprocess per session. Compatible with any ACP-speaking agent.
+| Flag            | Default          | Description             |
+|-----------------|------------------|-------------------------|
+| `--port N`      | `7878`           | HTTP port               |
+| `--host HOST`   | `127.0.0.1`      | Bind host               |
+| `--model NAME`  | settings default | Model override          |
+| `--provider NAME` | settings default | Provider override     |
 
 ## API
 
-| Method | Path                       | Description                                   |
-|--------|----------------------------|-----------------------------------------------|
-| GET    | `/`                        | Web UI; redirects to first session            |
-| POST   | `/sessions`                | Spawn session `{ cwd?: string }`              |
-| GET    | `/<id>/`                   | Web UI for session                            |
-| GET    | `/<id>/events`             | SSE event stream                              |
-| POST   | `/<id>/submit`             | Submit query `{ query: string }`              |
-| GET    | `/<id>/context`            | Context snapshot                              |
-| POST   | `/<id>/context/rewind`     | Drop trailing messages `{ toIndex: N }`       |
-| DELETE | `/<id>/`                   | Close session                                 |
-
-## Architecture
-
-```
-browser ──HTTP/SSE──> hub ──Bridge──> agent (in-process or subprocess)
-```
-
-The **Bridge** interface (`src/bridges/types.ts`) is the plug point: `submit`, `cancel`, `snapshot`, `compact`, plus event subscription.
-
-## Extending
-
-User extensions from `~/.agent-sh/extensions/` load on startup. Extensions that conflict with the hub should check `process.env.ASHUB_UNDER` and bail early.
-
-To add a custom backend, implement the `Bridge` interface and wire it in `cli.ts`'s `makeFactory`.
+| Method | Path                   | Description              |
+|--------|------------------------|--------------------------|
+| GET    | `/`                    | Web UI                   |
+| POST   | `/sessions`            | Spawn session            |
+| GET    | `/<id>/`               | Session UI               |
+| GET    | `/<id>/events`         | SSE event stream         |
+| POST   | `/<id>/submit`         | Submit query             |
+| GET    | `/<id>/context`        | Context snapshot         |
+| POST   | `/<id>/context/rewind` | Drop trailing messages   |
+| DELETE | `/<id>/`               | Close session            |
 
 ## Status
 
