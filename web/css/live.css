@@ -802,6 +802,7 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 /* ── Message action buttons ────────────────────────────────────────── */
 .agent-box, .agent-reply { position: relative; }
+.agent-box.pending .msg-actions { display: none; }
 
 .msg-actions {
   position: absolute;
@@ -2215,6 +2216,11 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .thinking-block.collapsed .thinking-block-head::before { transform: rotate(-90deg); }
 .thinking-block-body {
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.3s var(--ease-out-expo), opacity 0.2s;
+}
+.thinking-block-inner {
   padding: 0.45rem 0.85rem;
   color: var(--text-dim);
   white-space: pre-wrap;
@@ -2222,8 +2228,10 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   max-height: 14em;
   overflow-y: auto;
 }
-
-.thinking-block.collapsed .thinking-block-body { display: none; }
+.thinking-block.collapsed .thinking-block-body {
+  max-height: 0;
+  opacity: 0;
+}
 
 /* ── Live tool output ────────────────────────────────────────────── */
 .tool-body-live {

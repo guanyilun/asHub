@@ -161,6 +161,45 @@
   let completedTools = new Set(); // toolCallIds that have completed; ignore stray chunks
   let thinkingBlock = null;   // dim block for agent:thinking-chunk streaming
 
+  // CSS can't transition between an unbounded height and 0, so measure
+  // the body's current scrollHeight and animate max-height to/from that.
+  const setThinkingCollapsed = (block, collapsed) => {
+    const body = block.querySelector(".thinking-block-body");
+    if (!body) return;
+    const isCollapsed = block.classList.contains("collapsed");
+    if (collapsed === isCollapsed) return;
+    if (collapsed) {
+      body.style.maxHeight = body.scrollHeight + "px";
+      body.offsetHeight;
+      block.classList.add("collapsed");
+      body.style.maxHeight = "0";
+    } else {
+      body.style.maxHeight = "0";
+      block.classList.remove("collapsed");
+      body.offsetHeight;
+      body.style.maxHeight = body.scrollHeight + "px";
+      const onEnd = (ev) => {
+        if (ev.propertyName !== "max-height") return;
+        body.style.maxHeight = "";
+        body.removeEventListener("transitionend", onEnd);
+      };
+      body.addEventListener("transitionend", onEnd);
+    }
+  };
+
+  const finalizeThinking = () => {
+    if (!thinkingBlock) return;
+    const inner = thinkingBlock.querySelector(".thinking-block-inner");
+    if (!inner || !inner.textContent?.trim()) {
+      thinkingBlock.remove();
+    } else {
+      const head = thinkingBlock.querySelector(".thinking-block-head");
+      if (head) head.textContent = "thought";
+      setThinkingCollapsed(thinkingBlock, true);
+    }
+    thinkingBlock = null;
+  };
+
   const flushLiveOutput = () => {
     if (!liveToolOutput) return;
     liveToolOutput.rafPending = false;
@@ -249,6 +288,7 @@
       `<span class="turn-time">${new Date().toLocaleTimeString()}</span>` +
       `<span class="turn-line"></span>`;
     append(sep);
+    return sep;
   };
 
   let thinkingEl = null;
@@ -477,6 +517,29 @@
     return "";
   };
 
+  const createUserBox = (queryText) => {
+    const box = document.createElement("div");
+    box.className = "agent-box";
+    box.innerHTML = `
+      <div class="agent-box-head">
+        <span class="abh-l">&gt;</span>
+        <span class="abh-r">you</span>
+      </div>
+      <div class="q-text">${escape(queryText)}</div>`;
+    const actions = document.createElement("div");
+    actions.className = "msg-actions";
+    actions.innerHTML = `
+      <button class="msg-action-btn" data-action="edit" title="Edit message">✎</button>
+      <button class="msg-action-btn" data-action="regen" title="Regenerate response">↻</button>
+      <button class="msg-action-btn danger" data-action="delete" title="Delete turn">✕</button>`;
+    actions.querySelector('[data-action="edit"]')?.addEventListener("click", () => editUserMsg(box));
+    actions.querySelector('[data-action="regen"]')?.addEventListener("click", () => regenTurn(box));
+    actions.querySelector('[data-action="delete"]')?.addEventListener("click", () => deleteTurn(box));
+    box.appendChild(actions);
+    box._queryText = queryText;
+    return box;
+  };
+
   const handlers = {
     "agent:info": (p) => {
       if (p?.name === "web-renderer") return;
@@ -493,7 +556,7 @@
 
     "agent:query": (p) => {
       closeReply();
-      if (thinkingBlock) { thinkingBlock.remove(); thinkingBlock = null; }
+      finalizeThinking();
       if (liveToolOutput) {
         if (liveToolOutput.rafPending) flushLiveOutput();
         liveToolOutput.blockEl.classList.add("final");
@@ -501,32 +564,17 @@
       }
       completedTools = new Set();
       stream.querySelectorAll(".queued-hint").forEach((el) => el.remove());
+      const queryText = p?.query ?? "";
+      const pending = stream.querySelector(".agent-box.pending");
+      if (pending && pending._queryText === queryText) {
+        currentTurn++;
+        pending.dataset.turn = String(currentTurn);
+        pending.classList.remove("pending");
+        return;
+      }
       currentTurn++;
       renderTurnSep();
-      const box = document.createElement("div");
-      box.className = "agent-box";
-      box.dataset.turn = String(currentTurn);
-      const queryText = escape(p?.query ?? "");
-      box.innerHTML = `
-        <div class="agent-box-head">
-          <span class="abh-l">&gt;</span>
-          <span class="abh-r">you</span>
-        </div>
-        <div class="q-text">${queryText}</div>`;
-      // Action buttons: edit, regenerate, delete
-      const actions = document.createElement("div");
-      actions.className = "msg-actions";
-      actions.innerHTML = `
-        <button class="msg-action-btn" data-action="edit" title="Edit message">✎</button>
-        <button class="msg-action-btn" data-action="regen" title="Regenerate response">↻</button>
-        <button class="msg-action-btn danger" data-action="delete" title="Delete turn">✕</button>`;
-      actions.querySelector('[data-action="edit"]')?.addEventListener("click", () => editUserMsg(box));
-      actions.querySelector('[data-action="regen"]')?.addEventListener("click", () => regenTurn(box));
-      actions.querySelector('[data-action="delete"]')?.addEventListener("click", () => deleteTurn(box));
-      box.appendChild(actions);
-      // Store original query text for edit/regen
-      box._queryText = p?.query ?? "";
-      append(box);
+      append(createUserBox(queryText));
     },
 
     "agent:processing-start": () => {
@@ -535,7 +583,7 @@
       if (strip) strip.hidden = true;
       setBusy(true);
       // Close any lingering thinking block from previous turn.
-      if (thinkingBlock) { thinkingBlock.remove(); thinkingBlock = null; }
+      finalizeThinking();
       // Close any lingering live tool output from previous turn.
       if (liveToolOutput) {
         if (liveToolOutput.rafPending) flushLiveOutput();
@@ -561,8 +609,7 @@
       const delta = blocks.map(blockToText).join("");
       if (!delta) return;
       hideThinking();
-      // Close the thinking block once real response text starts streaming.
-      if (thinkingBlock) { thinkingBlock.remove(); thinkingBlock = null; }
+      finalizeThinking();
       if (!currentReply) {
         currentReply = document.createElement("div");
         currentReply.className = "agent-reply streaming";
@@ -595,16 +642,20 @@
       if (!text) return;
       hideThinking();
       if (!thinkingBlock) {
-        thinkingBlock = document.createElement("div");
-        thinkingBlock.className = "thinking-block";
+        const block = document.createElement("div");
+        block.className = "thinking-block";
+        thinkingBlock = block;
         const head = document.createElement("div");
         head.className = "thinking-block-head";
         head.textContent = "thinking…";
         head.addEventListener("click", () => {
-          thinkingBlock.classList.toggle("collapsed");
+          setThinkingCollapsed(block, !block.classList.contains("collapsed"));
         });
         const body = document.createElement("div");
         body.className = "thinking-block-body";
+        const inner = document.createElement("div");
+        inner.className = "thinking-block-inner";
+        body.appendChild(inner);
         thinkingBlock.append(head, body);
         // Insert directly into stream — don't use append(), which would
         // close the current tool group and break grouping of consecutive tools.
@@ -612,13 +663,9 @@
         stream.appendChild(thinkingBlock);
         maybeScroll();
       }
-      const body = thinkingBlock.querySelector(".thinking-block-body");
-      body.textContent = (body.textContent ?? "") + text;
-      // The thinking-block-body has max-height: 14em with its own overflow,
-      // so stream-level scroll won't help once the cap is hit.  Keep the
-      // body's internal scroll pinned to the bottom so the latest reasoning
-      // text is always visible.
-      body.scrollTop = body.scrollHeight;
+      const inner = thinkingBlock.querySelector(".thinking-block-inner");
+      inner.textContent = (inner.textContent ?? "") + text;
+      inner.scrollTop = inner.scrollHeight;
       maybeScroll();
     },
 
@@ -637,7 +684,7 @@
     "agent:processing-done": () => {
       closeReply();
       hideThinking();
-      if (thinkingBlock) { thinkingBlock.remove(); thinkingBlock = null; }
+      finalizeThinking();
       if (liveToolOutput) {
         if (liveToolOutput.rafPending) flushLiveOutput();
         liveToolOutput.blockEl.classList.add("final");
@@ -656,7 +703,7 @@
       }
       closeReply();
       hideThinking();
-      if (thinkingBlock) { thinkingBlock.remove(); thinkingBlock = null; }
+      finalizeThinking();
       if (liveToolOutput) {
         if (liveToolOutput.rafPending) flushLiveOutput();
         liveToolOutput.blockEl.classList.add("final");
@@ -668,7 +715,7 @@
     "agent:error": (p) => {
       closeReply();
       hideThinking();
-      if (thinkingBlock) { thinkingBlock.remove(); thinkingBlock = null; }
+      finalizeThinking();
       if (liveToolOutput) {
         if (liveToolOutput.rafPending) flushLiveOutput();
         liveToolOutput.blockEl.classList.add("final");
@@ -702,9 +749,8 @@
     "agent:tool-started": (p) => {
       // Close the in-progress reply so the next text chunk opens a new one
       // — preserves text/tool/text interleaving from the agent's narrative.
-      // Also dismiss any dangling thinking block and finalize stale live output.
       closeReply();
-      if (thinkingBlock) { thinkingBlock.remove(); thinkingBlock = null; }
+      finalizeThinking();
       if (liveToolOutput) {
         if (liveToolOutput.rafPending) flushLiveOutput();
         liveToolOutput.blockEl.classList.add("final");
@@ -1215,6 +1261,17 @@
     if (isSubmitting) return;
     lastQuery = query;
     isSubmitting = true;
+    input.value = "";
+    input.style.height = "";
+    slashAc.close();
+    let optimisticBox = null;
+    let optimisticSep = null;
+    if (!query.startsWith("/")) {
+      optimisticSep = renderTurnSep();
+      optimisticBox = createUserBox(query);
+      optimisticBox.classList.add("pending");
+      append(optimisticBox);
+    }
     input.disabled = true;
     try {
       if (query.startsWith("/")) {
@@ -1226,11 +1283,10 @@
           body: JSON.stringify({ query }),
         });
       }
-      input.value = "";
-      input.style.height = "";
-      slashAc.close();
     } catch (e) {
       console.error("submit failed", e);
+      optimisticBox?.remove();
+      optimisticSep?.remove();
     } finally {
       isSubmitting = false;
       input.disabled = false;
