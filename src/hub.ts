@@ -883,6 +883,12 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
   // during execution (the diff preview is shown up-front), so tool execution
   // can be a long idle stretch.  When tools are running the idle window is
   // widened to 10 min so large writes don't false-trigger.
+  //
+  // Reset toolsRunning at the start of a non-queued turn so stale counts from
+  // a previous turn (e.g. crashed agent, missed tool-completed) don't keep
+  // the window artificially wide.
+  if (!queued) session.toolsRunning = 0;
+
   let done = false;
   let rejectTimeout: ((err: Error) => void) | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -894,6 +900,13 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
     const elapsed = Date.now() - session.lastActivity;
     const windowMs = (session.toolsRunning > 0 ? 10 : 3) * 60 * 1000;
     if (elapsed >= windowMs) {
+      // Double-check: if the bridge still reports it's processing, extend
+      // the window instead of declaring it stuck.  This is a last-resort
+      // safety net that doesn't depend on accurate toolsRunning tracking.
+      if (session.bridge.isProcessing?.()) {
+        timer = setTimeout(checkIdle, 2 * 60 * 1000);
+        return;
+      }
       done = true;
       try { session.bridge.cancel(); } catch {}
       rejectTimeout!(new Error("Request timed out — the agent may be stuck."));
@@ -901,7 +914,8 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
       timer = setTimeout(checkIdle, windowMs - elapsed + 500);
     }
   };
-  timer = setTimeout(checkIdle, 3 * 60 * 1000); // always start with 3-min check
+  // Base the initial check interval on whether tools are already running.
+  timer = setTimeout(checkIdle, (session.toolsRunning > 0 ? 10 : 3) * 60 * 1000);
 
   const cleanup = () => {
     done = true;

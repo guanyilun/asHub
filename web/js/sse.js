@@ -64,7 +64,9 @@ const handlers = {
     }
     state.currentTurn++;
     renderTurnSep();
-    append(createUserBox(queryText));
+    const box = createUserBox(queryText);
+    box.dataset.turn = String(state.currentTurn);
+    append(box);
   },
 
   "agent:processing-start": () => {
