@@ -86,16 +86,11 @@ form?.addEventListener("submit", async (ev) => {
 });
 
 input?.addEventListener("keydown", (ev) => {
-  if (ev.key === "Enter" && !ev.shiftKey) {
-    if (!slashAc.hasSelection()) {
-      ev.preventDefault();
-      form.dispatchEvent(new Event("submit", { cancelable: true }));
-    }
-  }
-});
-
-input?.addEventListener("keydown", (ev) => {
-  if (ev.key === "ArrowUp" && !ev.shiftKey && !input.value && state.lastQuery) {
+  if (ev.shiftKey) return;
+  if (ev.key === "Enter" && !slashAc.hasSelection()) {
+    ev.preventDefault();
+    form.dispatchEvent(new Event("submit", { cancelable: true }));
+  } else if (ev.key === "ArrowUp" && !input.value && state.lastQuery) {
     ev.preventDefault();
     input.value = state.lastQuery;
     input.setSelectionRange(input.value.length, input.value.length);
@@ -125,9 +120,4 @@ export const cancelTurn = () => {
   fetch(`/${sessionId}/cancel`, { method: "POST" }).catch(() => {});
 };
 
-cancelBtn?.addEventListener("click", () => {
-  if (!sessionId) return;
-  cancelBtn.classList.add("flash");
-  setTimeout(() => cancelBtn.classList.remove("flash"), 200);
-  fetch(`/${sessionId}/cancel`, { method: "POST" }).catch(() => {});
-});
+cancelBtn?.addEventListener("click", cancelTurn);

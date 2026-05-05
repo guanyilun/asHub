@@ -62,8 +62,6 @@ export const appendLiveOutputChunk = (chunk) => {
   scheduleLiveOutput();
 };
 
-// Returns true if the buffered output became the tool body; false → caller
-// falls back to resultDisplay.
 export const absorbAsToolBody = (callId) => {
   if (callId) completedTools.add(callId);
   if (!liveToolOutput || liveToolOutput.callId !== callId) return false;

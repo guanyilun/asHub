@@ -99,7 +99,6 @@ try {
   if (localStorage.getItem(LS_FILES) === "1") setFilesOpen(true);
 } catch {}
 
-// Called from sse.js on shell:cwd-change so the listing tracks the agent.
 export const refreshFilesIfOpen = () => {
   if (filesPanel && !filesPanel.hasAttribute("hidden")) fetchFiles();
 };

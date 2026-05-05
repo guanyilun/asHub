@@ -3,8 +3,8 @@ import { sessionId, eventsUrl, state, setBusy } from "./state.js";
 import { maybeScroll } from "./stream/scroll.js";
 import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
 import {
-  renderUsage, renderTurnSep, renderPromptRow, renderErrorCard,
-  renderDiffBlock, renderToolDetail, renderToolBody,
+  renderUsage, hideUsage, renderTurnSep, renderPromptRow, renderErrorCard,
+  renderDiffBlock, renderToolBody, buildToolRow,
 } from "./stream/renderers.js";
 import {
   showThinking, hideThinking, hasThinkingDots,
@@ -26,8 +26,7 @@ const conn = document.getElementById("conn");
 const dot = document.querySelector(".live-dot");
 const instanceLabel = document.getElementById("instance");
 
-// Replay can fire multiple agent:info events; merge non-empty fields so a
-// partial event doesn't wipe out a previously-known name or model.
+// Merge non-empty fields so a partial replay event doesn't blank known values.
 const agentInfo = { name: "", model: "" };
 
 const handlers = {
@@ -69,8 +68,7 @@ const handlers = {
 
   "agent:processing-start": () => {
     state.lastUsage = null;
-    const strip = document.getElementById("usage-strip");
-    if (strip) strip.hidden = true;
+    hideUsage();
     setBusy(true);
     finalizeThinking();
     finalizeLiveOutput();
@@ -156,63 +154,8 @@ const handlers = {
     finalizeThinking();
     finalizeLiveOutput();
     startNewSegment();
-    const row = document.createElement("div");
-    row.className = "tool-row";
-    if (p?.toolCallId) row.dataset.callId = p.toolCallId;
-
-    const icon = p?.icon ?? "·";
-    const raw = (p?.rawInput && typeof p.rawInput === "object") ? p.rawInput : {};
-    // agent-loop appends ": <description>" to bash titles; strip it.
-    let title = p?.title ?? "tool";
-    if (raw.command && title.includes(":")) title = title.split(":")[0];
-
-    let detail = p?.displayDetail;
-    if (!detail && Array.isArray(p?.locations) && p.locations[0]?.path) {
-      detail = p.locations[0].path + (p.locations[0].line ? `:${p.locations[0].line}` : "");
-    }
-    if (!detail) {
-      if (raw.command) detail = `$ ${raw.command}`;
-      else detail = raw.pattern ?? raw.query ?? raw.path ?? "";
-    }
-
-    const CMD_COLLAPSE = 100;
-    let cmdCollapsed = false;
-    let cmdFull = "";
-    if (raw.command && typeof raw.command === "string" && raw.command.length > CMD_COLLAPSE) {
-      cmdCollapsed = true;
-      cmdFull = raw.command;
-      raw.command = raw.command.slice(0, CMD_COLLAPSE).trimEnd() + "…";
-    }
-    const detailHtml = renderToolDetail(detail, raw);
-    if (cmdCollapsed) raw.command = cmdFull;
-
-    row.innerHTML =
-      `<span class="tool-name">${escape(icon)} ${escape(title)}</span>` +
-      (detailHtml ? ` ${detailHtml}` : "");
-    appendToGroup(row);
-
-    if (cmdCollapsed && cmdFull) {
-      const detailEl = row.querySelector(".tool-detail");
-      if (detailEl) {
-        detailEl.classList.add("tool-cmd-collapsed");
-        detailEl.title = "click to expand command";
-        const toggleCmd = () => {
-          const expanded = detailEl.classList.toggle("tool-cmd-expanded");
-          if (expanded) {
-            detailEl.textContent = "$ " + cmdFull;
-            detailEl.title = "click to collapse command";
-          } else {
-            detailEl.textContent = "$ " + cmdFull.slice(0, CMD_COLLAPSE).trimEnd() + "…";
-            detailEl.title = "click to expand command";
-          }
-        };
-        detailEl.addEventListener("click", toggleCmd);
-        detailEl.style.cursor = "pointer";
-      }
-    }
-
+    appendToGroup(buildToolRow(p));
     bumpToolCount();
-
     // Local "working…" hint for users scrolled past the bar spinner.
     if (state.isProcessing && !hasReply() && !hasThinkingBlock() && !hasThinkingDots()) {
       showThinking();
@@ -238,8 +181,7 @@ const handlers = {
         const block = renderToolBody(body.lines);
         row.parentNode.insertBefore(block, row.nextSibling);
       } else if (body?.kind === "diff" && body.diff) {
-        // If a permission preview already drew this diff, confirm it and
-        // move it below the tool-row (where a non-previewed body would go).
+        // Reuse permission preview as the result diff if one was rendered.
         let preview = row.previousElementSibling;
         while (preview && !preview.classList.contains("diff-preview")) {
           preview = preview.previousElementSibling;

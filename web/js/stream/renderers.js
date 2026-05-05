@@ -6,6 +6,9 @@ import { state } from "../state.js";
 import { append } from "./tool-group.js";
 
 const usageEl = document.getElementById("usage");
+const usageStrip = document.getElementById("usage-strip");
+
+export const hideUsage = () => { if (usageStrip) usageStrip.hidden = true; };
 
 export const renderUsage = () => {
   if (!state.lastUsage) return;
@@ -40,8 +43,7 @@ export const renderUsage = () => {
     `</span>`;
   usageEl.classList.toggle("warm", pct >= 30 && pct < 70);
   usageEl.classList.toggle("hot", pct >= 70);
-  const strip = document.getElementById("usage-strip");
-  if (strip) strip.hidden = false;
+  if (usageStrip) usageStrip.hidden = false;
 };
 
 export const renderTurnSep = () => {
@@ -146,6 +148,56 @@ export const renderDiffBlock = (diff, filePath) => {
     }
   }
   return wrap;
+};
+
+const CMD_COLLAPSE = 100;
+
+export const buildToolRow = (p) => {
+  const row = document.createElement("div");
+  row.className = "tool-row";
+  if (p?.toolCallId) row.dataset.callId = p.toolCallId;
+
+  const icon = p?.icon ?? "·";
+  const raw = (p?.rawInput && typeof p.rawInput === "object") ? p.rawInput : {};
+  // agent-loop appends ": <description>" to bash titles; strip it.
+  let title = p?.title ?? "tool";
+  if (raw.command && title.includes(":")) title = title.split(":")[0];
+
+  let detail = p?.displayDetail;
+  if (!detail && Array.isArray(p?.locations) && p.locations[0]?.path) {
+    detail = p.locations[0].path + (p.locations[0].line ? `:${p.locations[0].line}` : "");
+  }
+  if (!detail) {
+    if (raw.command) detail = `$ ${raw.command}`;
+    else detail = raw.pattern ?? raw.query ?? raw.path ?? "";
+  }
+
+  const cmdFull = (raw.command && typeof raw.command === "string" && raw.command.length > CMD_COLLAPSE)
+    ? raw.command : "";
+  if (cmdFull) raw.command = cmdFull.slice(0, CMD_COLLAPSE).trimEnd() + "…";
+  const detailHtml = renderToolDetail(detail, raw);
+  if (cmdFull) raw.command = cmdFull;
+
+  row.innerHTML =
+    `<span class="tool-name">${escape(icon)} ${escape(title)}</span>` +
+    (detailHtml ? ` ${detailHtml}` : "");
+
+  if (cmdFull) {
+    const detailEl = row.querySelector(".tool-detail");
+    if (detailEl) {
+      detailEl.classList.add("tool-cmd-collapsed");
+      detailEl.title = "click to expand command";
+      detailEl.style.cursor = "pointer";
+      detailEl.addEventListener("click", () => {
+        const expanded = detailEl.classList.toggle("tool-cmd-expanded");
+        detailEl.textContent = expanded
+          ? "$ " + cmdFull
+          : "$ " + cmdFull.slice(0, CMD_COLLAPSE).trimEnd() + "…";
+        detailEl.title = expanded ? "click to collapse command" : "click to expand command";
+      });
+    }
+  }
+  return row;
 };
 
 export const renderToolDetail = (detail, raw) => {

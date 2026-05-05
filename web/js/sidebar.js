@@ -10,7 +10,6 @@ const newBtn = document.getElementById("new-session");
 
 const LS_LAST_CWD = "ash.last-cwd";
 
-let sessionsCache = null;
 let sessionsHash = "";
 
 const shortenCwd = (cwd) => {
@@ -73,7 +72,6 @@ const renderSessions = async () => {
       const m = list[0].cwd.match(/^(\/Users\/[^/]+|\/home\/[^/]+)/);
       if (m) state.homeDir = m[1];
     }
-    sessionsCache = list;
     sessionList.innerHTML = "";
     for (const s of list) {
       const li = document.createElement("li");
