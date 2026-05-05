@@ -1,0 +1,252 @@
+import { escape } from "./utils.js";
+import { sessionId } from "./state.js";
+
+const app = document.querySelector(".app");
+const ctxPanel = document.getElementById("ctx-panel");
+const ctxToggle = document.getElementById("ctx-toggle");
+const ctxClose = document.getElementById("ctx-close");
+const ctxRefresh = document.getElementById("ctx-refresh");
+const ctxBody = document.getElementById("ctx-body");
+const ctxMeta = document.getElementById("ctx-meta");
+const ctxDrop = document.getElementById("ctx-drop");
+const ctxFilters = document.getElementById("ctx-filters");
+
+const LS_CTX = "ash.ctx-open";
+
+// Pair each assistant tool_call with its tool result so they drop as a unit.
+const computeGroups = (msgs) => {
+  const groupOf = new Array(msgs.length).fill(-1);
+  let g = 0;
+  for (let i = 0; i < msgs.length; i++) {
+    if (groupOf[i] !== -1) continue;
+    const m = msgs[i];
+    if (m?.role === "assistant" && Array.isArray(m?.tool_calls) && m.tool_calls.length > 0) {
+      const ids = new Set(m.tool_calls.map((tc) => tc?.id).filter(Boolean));
+      groupOf[i] = g;
+      for (let j = i + 1; j < msgs.length; j++) {
+        const t = msgs[j];
+        if (t?.role !== "tool") break;
+        if (ids.has(t.tool_call_id)) groupOf[j] = g;
+        else break;
+      }
+      g++;
+    } else if (m?.role === "tool") {
+      groupOf[i] = g++;
+    } else {
+      groupOf[i] = g++;
+    }
+  }
+  return groupOf;
+};
+
+const tokensOf = (m) => Math.ceil(JSON.stringify(m ?? null).length / 4);
+const fmtTok = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
+const messageText = (m) => {
+  if (typeof m?.content === "string") return m.content;
+  if (Array.isArray(m?.content)) {
+    return m.content
+      .map((p) => (typeof p === "string" ? p : p?.text ?? p?.content ?? JSON.stringify(p)))
+      .join("\n");
+  }
+  if (m?.role === "assistant" && Array.isArray(m?.tool_calls)) {
+    return m.tool_calls.map((tc) => {
+      const fn = tc?.function ?? {};
+      let args = fn.arguments ?? "";
+      try {
+        const parsed = typeof args === "string" ? JSON.parse(args) : args;
+        args = JSON.stringify(parsed, null, 2);
+      } catch {}
+      return `→ ${fn.name ?? "tool"}(\n${args}\n)`;
+    }).join("\n\n");
+  }
+  if (m?.role === "tool") return String(m.content ?? "");
+  return JSON.stringify(m ?? {});
+};
+
+const selected = new Set();
+const activeRoles = new Set(["all"]);
+let currentMsgs = [];
+let currentGroups = [];
+
+const updateDropButton = () => {
+  ctxDrop.disabled = selected.size === 0;
+  if (selected.size > 0) {
+    let tok = 0;
+    for (const i of selected) tok += tokensOf(currentMsgs[i]);
+    ctxDrop.textContent = `drop ${selected.size} · ~${fmtTok(tok)}`;
+  } else {
+    ctxDrop.textContent = "drop";
+  }
+};
+
+const setGroupSelected = (group, on) => {
+  for (let i = 0; i < currentGroups.length; i++) {
+    if (currentGroups[i] !== group) continue;
+    if (on) selected.add(i); else selected.delete(i);
+    const row = ctxBody.querySelector(`[data-idx="${i}"]`);
+    const cb = row?.querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = on;
+    row?.classList.toggle("selected", on);
+  }
+  updateDropButton();
+};
+
+const applyCtxFilter = () => {
+  const all = activeRoles.has("all");
+  ctxBody.querySelectorAll(".ctx-msg").forEach((el) => {
+    const role = el.dataset.role ?? "";
+    el.hidden = !all && !activeRoles.has(role);
+  });
+};
+
+const renderContext = async () => {
+  selected.clear();
+  if (!sessionId) { ctxBody.innerHTML = '<div class="ctx-empty">no session</div>'; updateDropButton(); return; }
+  ctxBody.innerHTML = '<div class="ctx-empty">loading…</div>';
+  let data;
+  try {
+    const res = await fetch(`/${sessionId}/context`);
+    if (!res.ok) throw new Error(await res.text());
+    data = await res.json();
+  } catch (e) {
+    ctxBody.innerHTML = `<div class="ctx-empty">${escape(String(e.message ?? e))}</div>`;
+    updateDropButton();
+    return;
+  }
+  const msgs = Array.isArray(data.messages) ? data.messages : [];
+  currentMsgs = msgs;
+  currentGroups = computeGroups(msgs);
+  ctxMeta.textContent = `${msgs.length} msgs · ${fmtTok(data.activeTokens ?? 0)}/${fmtTok(data.contextWindow ?? 0)}`;
+
+  ctxBody.innerHTML = "";
+  if (msgs.length === 0) {
+    ctxBody.innerHTML = '<div class="ctx-empty">empty</div>';
+    updateDropButton();
+    return;
+  }
+  const groupSizes = new Map();
+  for (const g of currentGroups) groupSizes.set(g, (groupSizes.get(g) ?? 0) + 1);
+
+  msgs.forEach((m, i) => {
+    const wrap = document.createElement("div");
+    wrap.className = "ctx-msg";
+    wrap.dataset.idx = String(i);
+    if ((groupSizes.get(currentGroups[i]) ?? 1) > 1) wrap.classList.add("paired");
+    const role = String(m?.role ?? "?");
+    const text = messageText(m);
+    const tok = tokensOf(m);
+
+    wrap.dataset.role = role;
+
+    const head = document.createElement("div");
+    head.className = "ctx-msg-head";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.addEventListener("change", () => setGroupSelected(currentGroups[i], cb.checked));
+    const left = document.createElement("span");
+    left.appendChild(cb);
+    const dot = document.createElement("span");
+    dot.className = `ctx-dot ${escape(role)}`;
+    left.appendChild(dot);
+    const roleSpan = document.createElement("span");
+    roleSpan.className = `ctx-role ${escape(role)}`;
+    roleSpan.textContent = role;
+    left.appendChild(roleSpan);
+    const tokSpan = document.createElement("span");
+    tokSpan.className = "ctx-tokens";
+    tokSpan.textContent = `~${fmtTok(tok)}`;
+    left.appendChild(tokSpan);
+    const right = document.createElement("span");
+    right.textContent = `#${i}`;
+    head.appendChild(left);
+    head.appendChild(right);
+    wrap.appendChild(head);
+
+    const body = document.createElement("div");
+    body.className = "ctx-text";
+    const textNode = document.createElement("div");
+    textNode.className = "ctx-text-inner";
+    textNode.textContent = text;
+    body.appendChild(textNode);
+    const chev = document.createElement("button");
+    chev.type = "button";
+    chev.className = "ctx-chevron";
+    chev.textContent = "▾ expand";
+    chev.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const on = !body.classList.contains("expanded");
+      body.classList.toggle("expanded", on);
+      chev.textContent = on ? "▴ collapse" : "▾ expand";
+    });
+    body.appendChild(chev);
+    wrap.appendChild(body);
+
+    requestAnimationFrame(() => {
+      if (textNode.scrollHeight <= textNode.clientHeight + 4) chev.hidden = true;
+    });
+
+    ctxBody.appendChild(wrap);
+  });
+  applyCtxFilter();
+  updateDropButton();
+};
+
+ctxDrop?.addEventListener("click", async () => {
+  if (selected.size === 0) return;
+  const indices = [...selected].sort((a, b) => a - b);
+  try {
+    const res = await fetch(`/${sessionId}/context/drop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ indices }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  } catch (e) {
+    alert(`drop failed: ${e.message ?? e}`);
+    return;
+  }
+  renderContext();
+});
+
+ctxRefresh?.addEventListener("click", () => renderContext());
+
+ctxFilters?.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".ctx-chip");
+  if (!btn) return;
+  const role = btn.dataset.role;
+  if (role === "all") {
+    activeRoles.clear();
+    activeRoles.add("all");
+  } else {
+    activeRoles.delete("all");
+    if (activeRoles.has(role)) activeRoles.delete(role);
+    else activeRoles.add(role);
+    if (activeRoles.size === 0) activeRoles.add("all");
+  }
+  ctxFilters.querySelectorAll(".ctx-chip").forEach((c) => {
+    c.dataset.active = activeRoles.has(c.dataset.role) ? "1" : "0";
+  });
+  applyCtxFilter();
+});
+
+const setCtxOpen = (on) => {
+  if (on) { ctxPanel.removeAttribute("hidden"); app.classList.add("ctx-open"); renderContext(); }
+  else { ctxPanel.setAttribute("hidden", ""); app.classList.remove("ctx-open"); }
+  try { localStorage.setItem(LS_CTX, on ? "1" : "0"); } catch {}
+};
+
+try {
+  if (localStorage.getItem(LS_CTX) === "1") setCtxOpen(true);
+} catch {}
+
+ctxToggle?.addEventListener("click", () => setCtxOpen(ctxPanel.hasAttribute("hidden")));
+ctxClose?.addEventListener("click", () => setCtxOpen(false));
+
+document.addEventListener("keydown", (ev) => {
+  const meta = ev.metaKey || ev.ctrlKey;
+  if (meta && ev.key === "\\") {
+    ev.preventDefault();
+    setCtxOpen(ctxPanel.hasAttribute("hidden"));
+  }
+});

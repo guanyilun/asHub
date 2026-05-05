@@ -795,6 +795,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .agent-reply p { margin: 0; line-height: 1.8; }
 .agent-reply p + p { margin-top: 1rem; }
+.agent-reply > *:first-child { margin-top: 0; }
+.agent-reply > *:last-child { margin-bottom: 0; }
 .agent-reply ul, .agent-reply ol { margin: 0.65rem 0 0.65rem 1.6rem; padding: 0; }
 .agent-reply li { margin: 0.2rem 0; }
 .agent-reply h1, .agent-reply h2, .agent-reply h3 {

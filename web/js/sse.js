@@ -1,0 +1,328 @@
+import { escape, stripAnsi, mdToHtml, highlightWithin, blockToText } from "./utils.js";
+import { sessionId, eventsUrl, state, setBusy } from "./state.js";
+import { maybeScroll } from "./stream/scroll.js";
+import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
+import {
+  renderUsage, renderTurnSep, renderPromptRow, renderErrorCard,
+  renderDiffBlock, renderToolDetail, renderToolBody,
+} from "./stream/renderers.js";
+import {
+  showThinking, hideThinking, hasThinkingDots,
+  appendThinkingChunk, finalizeThinking, hasThinkingBlock,
+} from "./stream/thinking.js";
+import {
+  appendReplyChunk, fillFinalReply, closeReply, cancelReply, hasReply,
+  sawLiveSegment, startNewSegment,
+} from "./stream/reply.js";
+import {
+  appendLiveOutputChunk, finalizeLiveOutput, resetCompletedTools, absorbAsToolBody,
+} from "./stream/live-output.js";
+import { createUserBox } from "./actions.js";
+import { updateSessionTitle } from "./sidebar.js";
+import { refreshFilesIfOpen } from "./files-panel.js";
+
+const stream = document.getElementById("stream");
+const conn = document.getElementById("conn");
+const dot = document.querySelector(".live-dot");
+const instanceLabel = document.getElementById("instance");
+
+// Replay can fire multiple agent:info events; merge non-empty fields so a
+// partial event doesn't wipe out a previously-known name or model.
+const agentInfo = { name: "", model: "" };
+
+const handlers = {
+  "agent:info": (p) => {
+    if (p?.name === "web-renderer") return;
+    if (p?.name) agentInfo.name = p.name;
+    if (p?.model) agentInfo.model = p.model;
+    const bits = [agentInfo.name, agentInfo.model && `[${agentInfo.model}]`].filter(Boolean);
+    if (bits.length) instanceLabel.textContent = "agent-sh · " + bits.join(" ");
+    if (typeof p?.contextWindow === "number" && p.contextWindow > 0) {
+      state.contextWindow = p.contextWindow;
+    }
+  },
+
+  "shell:cwd-change": (p) => {
+    state.cwd = p?.cwd ?? "";
+    refreshFilesIfOpen();
+  },
+
+  "agent:query": (p) => {
+    closeReply();
+    finalizeThinking();
+    finalizeLiveOutput();
+    resetCompletedTools();
+    startNewSegment();
+    stream.querySelectorAll(".queued-hint").forEach((el) => el.remove());
+    const queryText = p?.query ?? "";
+    const pending = stream.querySelector(".agent-box.pending");
+    if (pending && pending._queryText === queryText) {
+      state.currentTurn++;
+      pending.dataset.turn = String(state.currentTurn);
+      pending.classList.remove("pending");
+      return;
+    }
+    state.currentTurn++;
+    renderTurnSep();
+    append(createUserBox(queryText));
+  },
+
+  "agent:processing-start": () => {
+    state.lastUsage = null;
+    const strip = document.getElementById("usage-strip");
+    if (strip) strip.hidden = true;
+    setBusy(true);
+    finalizeThinking();
+    finalizeLiveOutput();
+    resetCompletedTools();
+    startNewSegment();
+    showThinking();
+  },
+
+  "agent:queued": (p) => {
+    const row = document.createElement("div");
+    row.className = "ui-info queued-hint";
+    const q = p?.query ?? "";
+    row.textContent = q
+      ? `queued: "${q.length > 60 ? q.slice(0, 57) + "…" : q}"`
+      : "queued — will send after current response";
+    append(row);
+  },
+
+  "agent:response-chunk": (p) => {
+    const blocks = Array.isArray(p?.blocks) ? p.blocks : [];
+    const delta = blocks.map(blockToText).join("");
+    if (!delta) return;
+    hideThinking();
+    finalizeThinking();
+    appendReplyChunk(delta);
+  },
+
+  // Replay-only: live chunks already covered the segment.
+  "agent:response-segment": (p) => {
+    if (hasReply() || sawLiveSegment()) return;
+    if (!p?.text) return;
+    const block = document.createElement("div");
+    block.className = "agent-reply";
+    block.dataset.turn = String(state.currentTurn);
+    block.innerHTML = mdToHtml(stripAnsi(p.text));
+    append(block);
+    highlightWithin(block);
+  },
+
+  "agent:thinking-chunk": (p) => {
+    appendThinkingChunk(stripAnsi(p?.text ?? ""));
+  },
+
+  "agent:response-done": (p) => {
+    if (p?.response) fillFinalReply(p.response);
+    closeReply();
+  },
+
+  "agent:processing-done": () => {
+    closeReply();
+    hideThinking();
+    finalizeThinking();
+    finalizeLiveOutput();
+    renderUsage();
+    setBusy(false);
+  },
+
+  "agent:cancelled": () => {
+    cancelReply();
+    hideThinking();
+    finalizeThinking();
+    finalizeLiveOutput();
+    setBusy(false);
+  },
+
+  "agent:error": (p) => {
+    closeReply();
+    hideThinking();
+    finalizeThinking();
+    finalizeLiveOutput();
+    append(renderErrorCard(p?.message ?? "", p?.detail ?? p?.stack));
+    setBusy(false);
+  },
+
+  "agent:usage": (p) => { state.lastUsage = p; },
+
+  "session:title": (p) => {
+    updateSessionTitle(sessionId, p?.title ?? "");
+  },
+
+  "agent:tool-started": (p) => {
+    closeReply();
+    finalizeThinking();
+    finalizeLiveOutput();
+    startNewSegment();
+    const row = document.createElement("div");
+    row.className = "tool-row";
+    if (p?.toolCallId) row.dataset.callId = p.toolCallId;
+
+    const icon = p?.icon ?? "·";
+    const raw = (p?.rawInput && typeof p.rawInput === "object") ? p.rawInput : {};
+    // agent-loop appends ": <description>" to bash titles; strip it.
+    let title = p?.title ?? "tool";
+    if (raw.command && title.includes(":")) title = title.split(":")[0];
+
+    let detail = p?.displayDetail;
+    if (!detail && Array.isArray(p?.locations) && p.locations[0]?.path) {
+      detail = p.locations[0].path + (p.locations[0].line ? `:${p.locations[0].line}` : "");
+    }
+    if (!detail) {
+      if (raw.command) detail = `$ ${raw.command}`;
+      else detail = raw.pattern ?? raw.query ?? raw.path ?? "";
+    }
+
+    const CMD_COLLAPSE = 100;
+    let cmdCollapsed = false;
+    let cmdFull = "";
+    if (raw.command && typeof raw.command === "string" && raw.command.length > CMD_COLLAPSE) {
+      cmdCollapsed = true;
+      cmdFull = raw.command;
+      raw.command = raw.command.slice(0, CMD_COLLAPSE).trimEnd() + "…";
+    }
+    const detailHtml = renderToolDetail(detail, raw);
+    if (cmdCollapsed) raw.command = cmdFull;
+
+    row.innerHTML =
+      `<span class="tool-name">${escape(icon)} ${escape(title)}</span>` +
+      (detailHtml ? ` ${detailHtml}` : "");
+    appendToGroup(row);
+
+    if (cmdCollapsed && cmdFull) {
+      const detailEl = row.querySelector(".tool-detail");
+      if (detailEl) {
+        detailEl.classList.add("tool-cmd-collapsed");
+        detailEl.title = "click to expand command";
+        const toggleCmd = () => {
+          const expanded = detailEl.classList.toggle("tool-cmd-expanded");
+          if (expanded) {
+            detailEl.textContent = "$ " + cmdFull;
+            detailEl.title = "click to collapse command";
+          } else {
+            detailEl.textContent = "$ " + cmdFull.slice(0, CMD_COLLAPSE).trimEnd() + "…";
+            detailEl.title = "click to expand command";
+          }
+        };
+        detailEl.addEventListener("click", toggleCmd);
+        detailEl.style.cursor = "pointer";
+      }
+    }
+
+    bumpToolCount();
+
+    // Local "working…" hint for users scrolled past the bar spinner.
+    if (state.isProcessing && !hasReply() && !hasThinkingBlock() && !hasThinkingDots()) {
+      showThinking();
+    }
+  },
+
+  "agent:tool-completed": (p) => {
+    const id = p?.toolCallId ?? "";
+    const row = id ? stream.querySelector(`.tool-row[data-call-id="${CSS.escape(id)}"]`) : null;
+    if (!row) return;
+    const ok = p?.exitCode === 0 || p?.exitCode == null;
+    row.classList.add(ok ? "ok" : "err");
+    const summary = p?.resultDisplay?.summary ?? "";
+    const mark = ok ? "✓" : `✗ exit ${p?.exitCode}`;
+    const tail = document.createElement("span");
+    tail.className = "tool-mark";
+    tail.textContent = (summary ? ` ${summary} ` : "  ") + mark;
+    row.appendChild(tail);
+
+    if (!absorbAsToolBody(id)) {
+      const body = p?.resultDisplay?.body;
+      if (body?.kind === "lines" && Array.isArray(body.lines) && body.lines.length) {
+        const block = renderToolBody(body.lines);
+        row.parentNode.insertBefore(block, row.nextSibling);
+      } else if (body?.kind === "diff" && body.diff) {
+        // If a permission preview already drew this diff, confirm it and
+        // move it below the tool-row (where a non-previewed body would go).
+        let preview = row.previousElementSibling;
+        while (preview && !preview.classList.contains("diff-preview")) {
+          preview = preview.previousElementSibling;
+        }
+        if (preview) {
+          preview.classList.remove("diff-preview");
+          row.parentNode.insertBefore(preview, row.nextSibling);
+        } else {
+          const block = renderDiffBlock(body.diff, body.filePath);
+          row.parentNode.insertBefore(block, row.nextSibling);
+        }
+      }
+    }
+    maybeScroll();
+  },
+
+  "agent:tool-output-chunk": (p) => {
+    appendLiveOutputChunk(p?.chunk ?? "");
+  },
+
+  "permission:request": (p) => {
+    if (p?.kind === "file-write" && p?.metadata?.diff) {
+      closeReply();
+      const block = renderDiffBlock(p.metadata.diff, p.title ?? p.metadata.filePath ?? "");
+      block.classList.add("diff-preview");
+      appendToGroup(block);
+    }
+  },
+
+  "ui:info": (p) => {
+    const row = document.createElement("div");
+    row.className = "ui-info";
+    row.textContent = String(p?.message ?? "");
+    append(row);
+  },
+  "ui:error": (p) => {
+    append(renderErrorCard(p?.message ?? "command failed", null));
+  },
+
+  "shell:command-start": (p) => {
+    closeReply();
+    state.cwd = p?.cwd ?? state.cwd;
+    renderPromptRow();
+    const row = document.createElement("div");
+    row.className = "t-input";
+    row.innerHTML = `<span class="t-prompt">&gt;</span>${escape(p?.command ?? "")}`;
+    append(row);
+  },
+
+  "shell:command-done": (p) => {
+    const text = stripAnsi(p?.output ?? "");
+    const isErr = p?.exitCode != null && p.exitCode !== 0;
+    if (isErr) {
+      append(renderErrorCard(`shell command failed (exit ${p.exitCode})`, text));
+      return;
+    }
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      const row = document.createElement("div");
+      row.className = "t-out";
+      row.textContent = line;
+      append(row);
+    }
+  },
+};
+
+const connect = () => {
+  const es = new EventSource(eventsUrl);
+  es.onopen = () => { conn.textContent = ""; dot.classList.remove("stale"); };
+  es.onerror = () => { conn.textContent = "reconnecting…"; dot.classList.add("stale"); };
+  es.onmessage = (ev) => {
+    let frame;
+    try { frame = JSON.parse(ev.data); } catch { return; }
+    const fn = handlers[frame?.meta?.name];
+    if (fn) {
+      try { fn(frame.payload); } catch (e) { console.error(frame.meta.name, e); }
+    }
+  };
+};
+
+if (sessionId) {
+  connect();
+} else {
+  conn.textContent = "no session — click + to create";
+  dot.classList.add("stale");
+}
