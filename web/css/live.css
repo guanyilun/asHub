@@ -432,7 +432,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .session-title-edit {
   display: block;
-  width: calc(100% - 5rem);
+  width: 100%;
+  box-sizing: border-box;
   background: var(--bg4);
   border: 1px solid var(--accent-border);
   border-radius: var(--radius-xs);
@@ -801,6 +802,7 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 /* ── Message action buttons ────────────────────────────────────────── */
 .agent-box, .agent-reply { position: relative; }
+.agent-box.pending .msg-actions { display: none; }
 
 .msg-actions {
   position: absolute;
@@ -908,6 +910,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .tool-detail { color: var(--text); }
@@ -930,6 +934,12 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   margin: 0;
   font: inherit;
   color: inherit;
+  display: block;
+}
+
+.tool-body:not(.tool-body-live) > .tool-body-text {
+  max-height: 24em;
+  overflow-y: auto;
 }
 
 .tool-body-actions {
@@ -1011,6 +1021,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .diff-block.wrapped .diff-line { white-space: pre-wrap; word-break: break-word; }
 .diff-block.wrapped .diff-text { white-space: pre-wrap; }
+.diff-block.wrapped .diff-rows { min-width: 0; }
+.diff-block.wrapped .diff-line { grid-template-columns: 3em 3em 1.5em 1fr; }
 .diff-path { color: var(--text); }
 .diff-stat { color: var(--cyan); margin-left: 0.5rem; }
 .diff-sep {
@@ -1021,11 +1033,17 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   font-size: 0.7rem;
 }
 
+.diff-body { overflow-x: auto; }
+.diff-rows {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
+}
+
 .diff-line {
   display: grid;
-  grid-template-columns: 3em 3em 1.5em 1fr;
+  grid-template-columns: 3em 3em 1.5em max-content;
   white-space: pre;
-  overflow-x: auto;
 }
 
 .diff-no {
@@ -1040,17 +1058,16 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 .diff-text { padding-right: 0.6rem; }
 
 .diff-context { background: transparent; }
-.diff-context .diff-text { color: var(--text); }
 
 .diff-added { background: rgba(90, 158, 111, 0.1); }
-.diff-added .diff-sign,
-.diff-added .diff-text { color: var(--green); }
+.diff-added .diff-sign { color: var(--green); }
 .diff-added .diff-new { color: var(--green); }
 
 .diff-removed { background: rgba(199, 106, 100, 0.1); }
-.diff-removed .diff-sign,
-.diff-removed .diff-text { color: var(--red); }
+.diff-removed .diff-sign { color: var(--red); }
 .diff-removed .diff-old { color: var(--red); }
+
+.diff-text.hljs { background: transparent; padding: 0; }
 
 .diff-block.diff-preview { border-color: var(--amber); }
 
@@ -1254,17 +1271,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .tool-group:not(.collapsed) .tool-group-head { color: var(--text-dim); }
 
-.tool-group-body {
-  max-height: 1000px;
-  opacity: 1;
-  overflow: hidden;
-  transition: max-height 0.3s var(--ease-out-expo), opacity 0.2s;
-}
-
-.tool-group.collapsed .tool-group-body {
-  max-height: 0;
-  opacity: 0;
-}
+.tool-group.collapsed .tool-group-body { display: none; }
+.tool-group.collapsed .tool-group-head { margin-bottom: 0; }
 
 /* ── Tool detail ─────────────────────────────────────────────────── */
 .tool-detail.tool-cmd {
@@ -2214,6 +2222,11 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .thinking-block.collapsed .thinking-block-head::before { transform: rotate(-90deg); }
 .thinking-block-body {
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.3s var(--ease-out-expo), opacity 0.2s;
+}
+.thinking-block-inner {
   padding: 0.45rem 0.85rem;
   color: var(--text-dim);
   white-space: pre-wrap;
@@ -2221,8 +2234,10 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   max-height: 14em;
   overflow-y: auto;
 }
-
-.thinking-block.collapsed .thinking-block-body { display: none; }
+.thinking-block.collapsed .thinking-block-body {
+  max-height: 0;
+  opacity: 0;
+}
 
 /* ── Live tool output ────────────────────────────────────────────── */
 .tool-body-live {
@@ -2236,7 +2251,8 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   line-height: 1.55;
   background: var(--bg3);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  overflow-x: auto;
+  max-height: 24em;
+  overflow: auto;
   position: relative;
 }
 
