@@ -772,7 +772,7 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 }
 
 .live-wrap .agent-box-head { display: none; }
-.live-wrap .agent-box .q-text { color: var(--text); padding: 0; }
+.live-wrap .agent-box .q-text { color: var(--text); padding: 0; white-space: pre-wrap; }
 
 /* ── Agent reply ─────────────────────────────────────────────────── */
 .live-wrap .agent-reply {

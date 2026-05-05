@@ -529,6 +529,7 @@ nav.scrolled {
 .agent-box .q-text {
   color: var(--text);
   padding-top: 0.35rem;
+  white-space: pre-wrap;
 }
 
 .agent-reply {
