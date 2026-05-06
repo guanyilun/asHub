@@ -53,7 +53,6 @@ const handlers = {
     finalizeLiveOutput();
     resetCompletedTools();
     startNewSegment();
-    stream.querySelectorAll(".queued-hint").forEach((el) => el.remove());
     const queryText = p?.query ?? "";
     let matched = null;
     for (const pb of stream.querySelectorAll(".agent-box.pending")) {
@@ -81,16 +80,6 @@ const handlers = {
     resetCompletedTools();
     startNewSegment();
     showThinking();
-  },
-
-  "agent:queued": (p) => {
-    const row = document.createElement("div");
-    row.className = "ui-info queued-hint";
-    const q = p?.query ?? "";
-    row.textContent = q
-      ? `queued: "${q.length > 60 ? q.slice(0, 57) + "…" : q}"`
-      : "queued — will send after current response";
-    append(row);
   },
 
   "agent:response-chunk": (p) => {
@@ -141,7 +130,6 @@ const handlers = {
     finalizeThinking();
     finalizeLiveOutput();
     stream.querySelectorAll(".agent-box.pending").forEach((el) => el.remove());
-    stream.querySelectorAll(".queued-hint").forEach((el) => el.remove());
     setBusy(false);
     compactReasoning(stream);
   },
