@@ -54,6 +54,7 @@ linux:
       arch:
         - x64
   category: Development
+  icon: electron/icon.png
 
 publish:
   provider: github
