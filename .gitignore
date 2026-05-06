@@ -4,3 +4,5 @@ release
 mirror
 *.log
 .DS_Store
+web/download.html
+web/nginx.conf
