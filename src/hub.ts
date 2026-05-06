@@ -46,6 +46,8 @@ interface Session {
   lastActivity: number;
   /** How many tools are currently running (tracked via agent:tool-started / agent:tool-completed). */
   toolsRunning: number;
+  /** Timestamp of most recent modification (create, title change, new turn, command). */
+  lastModified: number;
 }
 
 const REPLAY_LIMIT = 5000;
@@ -97,7 +99,7 @@ async function ensureSessionsDir(): Promise<void> {
 
 async function saveSessionMeta(session: Session): Promise<void> {
   await ensureSessionsDir();
-  const meta = { id: session.id, title: session.title, cwd: session.cwd, model: session.model, startedAt: session.startedAt, firstQuery: session.firstQuery, userTitle: session.userTitle };
+  const meta = { id: session.id, title: session.title, cwd: session.cwd, model: session.model, startedAt: session.startedAt, firstQuery: session.firstQuery, userTitle: session.userTitle, lastModified: session.lastModified };
   await fs.promises.writeFile(path.join(SESSIONS_DIR, `${session.id}.meta.json`), JSON.stringify(meta));
 }
 
@@ -201,6 +203,7 @@ interface PersistedSession {
   messages?: unknown[];
   firstQuery?: string;
   userTitle?: string;
+  lastModified?: number;
 }
 
 async function loadPersistedSessions(): Promise<PersistedSession[]> {
@@ -226,7 +229,7 @@ async function loadPersistedSessions(): Promise<PersistedSession[]> {
           const parsed = JSON.parse(msgRaw);
           if (Array.isArray(parsed)) messages = parsed;
         } catch {}
-        results.push({ id: meta.id || id, title: meta.title, cwd: meta.cwd, model: meta.model, startedAt: meta.startedAt, replay, messages, firstQuery: meta.firstQuery, userTitle: meta.userTitle });
+        results.push({ id: meta.id || id, title: meta.title, cwd: meta.cwd, model: meta.model, startedAt: meta.startedAt, replay, messages, firstQuery: meta.firstQuery, userTitle: meta.userTitle, lastModified: meta.lastModified });
       } catch {}
     }
     return results;
@@ -402,7 +405,7 @@ async function createSession(
   sessions: Map<string, Session>,
   opts: HubOpts,
   cwd: string,
-  existing?: { id: string; title?: string; replay: string[]; startedAt: number; messages?: unknown[]; firstQuery?: string; userTitle?: string; model?: string },
+  existing?: { id: string; title?: string; replay: string[]; startedAt: number; messages?: unknown[]; firstQuery?: string; userTitle?: string; model?: string; lastModified?: number },
 ): Promise<Session> {
   const id = existing?.id ?? randomBytes(3).toString("hex");
   const bridge = opts.makeBridge({ cwd, initialMessages: existing?.messages, model: existing?.model });
@@ -424,6 +427,7 @@ async function createSession(
     userTitle: existing?.userTitle,
     lastActivity: Date.now(),
     toolsRunning: 0,
+    lastModified: existing?.lastModified ?? existing?.startedAt ?? Date.now(),
   };
 
   bridge.onEvent((e) => {
@@ -460,10 +464,13 @@ async function createSession(
 async function restoreSessions(sessions: Map<string, Session>, opts: HubOpts): Promise<void> {
   const persisted = await loadPersistedSessions();
   if (persisted.length === 0) return;
+  // Sort by lastModified descending so the most recently active sessions
+  // appear first in the sidebar — mirroring listSessions.
+  persisted.sort((a, b) => (b.lastModified ?? b.startedAt ?? 0) - (a.lastModified ?? a.startedAt ?? 0));
   console.error(`[hub] restoring ${persisted.length} session(s)…`);
   for (const p of persisted) {
     try {
-      await createSession(sessions, opts, p.cwd, { id: p.id, title: p.title, replay: p.replay, startedAt: p.startedAt, messages: p.messages, firstQuery: p.firstQuery, userTitle: p.userTitle, model: p.model });
+      await createSession(sessions, opts, p.cwd, { id: p.id, title: p.title, replay: p.replay, startedAt: p.startedAt, messages: p.messages, firstQuery: p.firstQuery, userTitle: p.userTitle, model: p.model, lastModified: p.lastModified });
       console.error(`[hub] restored session ${p.id} (cwd: ${p.cwd})`);
     } catch (err) {
       console.error(`[hub] failed to restore session ${p.id}:`, err);
@@ -510,6 +517,7 @@ function routeEvent(session: Session, e: BusEvent): void {
   }
 
   if (e.name === "agent:queued-submit") {
+    session.lastModified = Date.now();
     const query = (e.payload as { query?: string })?.query ?? "";
     pushFrame(session, "agent:query", sseFrame({ ...meta, name: "agent:query" }, { query }));
     pushFrame(session, "agent:processing-start", sseFrame({ ...meta, name: "agent:processing-start" }, {}));
@@ -523,6 +531,7 @@ function routeEvent(session: Session, e: BusEvent): void {
     // so restarted sessions restore their state, and auto-generate a title
     // after the first completed turn.
     saveSessionMessages(session).catch(() => {});
+    saveSessionMeta(session).catch(() => {});
     if (!session.firstTurnDone && session.firstQuery) {
       session.firstTurnDone = true;
       generateTitleAsync(session).catch((err) =>
@@ -574,6 +583,7 @@ async function setSessionTitle(session: Session, title: string): Promise<void> {
   const trimmed = title.trim().slice(0, 100);
   if (!trimmed || trimmed === session.title) return;
   session.title = trimmed;
+  session.lastModified = Date.now();
   await saveSessionMeta(session);
   const frame = sseFrame(
     { source: session.id, ts: Date.now(), id: `hub:${session.id}:title`, name: "session:title" },
@@ -646,13 +656,15 @@ async function readSettings(): Promise<Record<string, unknown> | null> {
 // ── HTTP handlers ───────────────────────────────────────────────────
 
 function listSessions(res: http.ServerResponse, sessions: Map<string, Session>): void {
-  const list = Array.from(sessions.values()).map((s) => ({
-    instanceId: s.id,
-    title: s.title,
-    model: s.model,
-    cwd: s.cwd,
-    startedAt: s.startedAt,
-  }));
+  const list = Array.from(sessions.values())
+    .sort((a, b) => (b.lastModified ?? b.startedAt) - (a.lastModified ?? a.startedAt))
+    .map((s) => ({
+      instanceId: s.id,
+      title: s.title,
+      model: s.model,
+      cwd: s.cwd,
+      startedAt: s.startedAt,
+    }));
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify(list));
 }
@@ -846,6 +858,9 @@ function openSse(req: http.IncomingMessage, res: http.ServerResponse, session: S
   for (const line of session.replay) {
     try { res.write(line); } catch { return; }
   }
+  // Sentinel so the client knows replay is done and can exit batching
+  // mode even when live events arrive immediately after (active turn).
+  res.write(`data: {"meta":{"name":"hub:replay-done","ts":${Date.now()}}}\n\n`);
   session.sseClients.add(res);
   req.on("close", () => session.sseClients.delete(res));
 }
@@ -866,6 +881,9 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
   // Capture the first user query for auto-title generation.
   const isFirstTurn = !session.firstTurnDone;
   if (isFirstTurn) session.firstQuery = query;
+
+  // Bump lastModified so this session moves to the top of the sidebar.
+  session.lastModified = Date.now();
 
   const queued = !!session.bridge.isProcessing?.();
   if (!queued) {
@@ -934,6 +952,8 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
       // Persist messages snapshot so restarted sessions restore their
       // conversation state (not just SSE replay frames).
       saveSessionMessages(session).catch(() => {});
+      // Persist lastModified so the session order survives restart.
+      saveSessionMeta(session).catch(() => {});
 
       // After the first turn completes, generate a title via the LLM.
       if (isFirstTurn && !session.firstTurnDone) {
@@ -968,6 +988,7 @@ async function execCommand(
   if (!session.bridge.execCommand) {
     res.statusCode = 501; res.end("bridge does not support commands"); return;
   }
+  session.lastModified = Date.now();
   // Echo the command into the stream so users see what they ran. Slash output
   // arrives back via ui:info / ui:error frames the bridge already forwards.
   const meta = (n: string) => ({
@@ -978,6 +999,7 @@ async function execCommand(
   try { session.bridge.execCommand(name, args); } catch (err) {
     pushFrame(session, "ui:error", sseFrame(meta("ui:error"), { message: String(err) }));
   }
+  saveSessionMeta(session).catch(() => {});
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ ok: true }));
 }

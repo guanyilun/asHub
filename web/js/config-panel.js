@@ -21,6 +21,7 @@ const configModeTabs = document.getElementById("config-mode-tabs");
 
 let configMode = "simple";
 let originalConfig = "";
+let serverConfig = "";
 let originalApiKey = "";
 
 const PROVIDERS = {
@@ -44,6 +45,17 @@ const PROVIDERS = {
       },
     ],
   },
+  zhipu: {
+    name: "Z.AI",
+    description: "GLM models with 200K context window",
+    baseURL: "https://open.bigmodel.cn/api/coding/paas/v4",
+    defaultModel: "glm-5.1",
+    models: [
+      { id: "glm-5.1", contextWindow: 204800, maxTokens: 131072 },
+      { id: "glm-5-turbo", contextWindow: 204800, maxTokens: 131072 },
+      { id: "glm-4.7", contextWindow: 204800, maxTokens: 131072 },
+    ],
+  },
 };
 
 const buildConfig = () => {
@@ -55,16 +67,35 @@ const buildConfig = () => {
   let existing = {};
   try { existing = JSON.parse(originalConfig || "{}"); } catch {}
 
+  // Preserve existing provider fields, falling back to hardcoded defaults
+  const existingProvider =
+    existing.providers && typeof existing.providers === "object"
+      ? existing.providers[providerId]
+      : null;
+  const prev = existingProvider && typeof existingProvider === "object"
+    ? existingProvider
+    : {};
+
+  const providerCfg = {
+    baseURL: prev.baseURL ?? providerDef.baseURL,
+    apiKey: apiKey || prev.apiKey || "YOUR_API_KEY",
+    defaultModel: prev.defaultModel ?? providerDef.defaultModel,
+    models: prev.models ?? providerDef.models,
+  };
+
+  // Carry over any extra fields on the existing provider that aren't
+  // part of the standard template (e.g. contextWindow, reasoningShape).
+  for (const [key, val] of Object.entries(prev)) {
+    if (!(key in providerCfg)) {
+      providerCfg[key] = val;
+    }
+  }
+
   const config = {
     providers: {
-      [providerId]: {
-        baseURL: providerDef.baseURL,
-        apiKey: apiKey || "YOUR_API_KEY",
-        defaultModel: providerDef.defaultModel,
-        models: providerDef.models,
-      },
+      [providerId]: providerCfg,
     },
-    defaultProvider: providerId,
+    defaultProvider: existing.defaultProvider || providerId,
   };
 
   for (const [key, val] of Object.entries(existing)) {
@@ -73,6 +104,9 @@ const buildConfig = () => {
     }
   }
 
+  // Preserve providers that were configured outside the simple form
+  // (e.g. manually in advanced mode). Only the currently-selected
+  // provider is rebuilt from the simple form inputs.
   if (existing.providers && typeof existing.providers === "object") {
     for (const [key, val] of Object.entries(existing.providers)) {
       if (!(key in config.providers)) {
@@ -155,6 +189,13 @@ const switchConfigMode = (mode) => {
   if (mode === "simple") {
     configBodySimple.removeAttribute("hidden");
     configBodyAdvanced.setAttribute("hidden", "");
+    // Sync editor content so Advanced edits survive a Simple→Save round-trip.
+    try {
+      const edited = JSON.parse(configEditor.value);
+      if (edited && typeof edited === "object" && !Array.isArray(edited)) {
+        originalConfig = JSON.stringify(edited, null, 2);
+      }
+    } catch {}
     try {
       const parsed = JSON.parse(configEditor.value || "{}");
       parseConfigToSimple(parsed);
@@ -165,6 +206,14 @@ const switchConfigMode = (mode) => {
   } else {
     configBodySimple.setAttribute("hidden", "");
     configBodyAdvanced.removeAttribute("hidden");
+    // Use current editor content as the base so edits made in Advanced
+    // mode aren't lost when switching Simple → Advanced.
+    try {
+      const edited = JSON.parse(configEditor.value);
+      if (edited && typeof edited === "object" && !Array.isArray(edited)) {
+        originalConfig = JSON.stringify(edited, null, 2);
+      }
+    } catch {}
     const config = buildConfig();
     configEditor.value = config
       ? JSON.stringify(config, null, 2)
@@ -181,7 +230,26 @@ configApikeyToggle?.addEventListener("click", () => {
   configApikeyToggle.classList.toggle("showing", apiKeyVisible);
 });
 
-configProvider?.addEventListener("change", updateProviderDesc);
+configProvider?.addEventListener("change", () => {
+  updateProviderDesc();
+  // When switching providers in simple mode, populate the API key
+  // input with the stored key for the newly selected provider (if any).
+  try {
+    const cfg = JSON.parse(originalConfig || serverConfig || "{}");
+    if (cfg.providers && cfg.providers[configProvider.value]) {
+      const pk = cfg.providers[configProvider.value].apiKey;
+      const key = (typeof pk === "string" && pk !== "YOUR_API_KEY") ? pk : "";
+      configApikey.value = key;
+      originalApiKey = key;
+    } else {
+      configApikey.value = "";
+      originalApiKey = "";
+    }
+  } catch {
+    configApikey.value = "";
+    originalApiKey = "";
+  }
+});
 
 export const setConfigOpen = async (on) => {
   if (on) {
@@ -192,6 +260,7 @@ export const setConfigOpen = async (on) => {
       rawConfig = await r.json();
     } catch {}
     originalConfig = JSON.stringify(rawConfig, null, 2);
+    serverConfig = originalConfig;
     configEditor.value = originalConfig;
 
     originalApiKey = "";
@@ -202,25 +271,10 @@ export const setConfigOpen = async (on) => {
       }
     }
 
-    const hasExtraProviders = rawConfig.providers &&
-      typeof rawConfig.providers === "object" &&
-      Object.keys(rawConfig.providers).some((k) => !(k in PROVIDERS));
-    const hasExtensions = Array.isArray(rawConfig.extensions) && rawConfig.extensions.length > 0;
-    const hasExtraFields = Object.keys(rawConfig).some(
-      (k) => !["providers", "defaultProvider", "extensions", "defaultBackend"].includes(k)
-    );
-
-    if (hasExtraProviders || hasExtensions || hasExtraFields) {
-      switchConfigMode("advanced");
-    } else {
-      switchConfigMode("simple");
-    }
-
-    if (configMode === "simple") {
-      parseConfigToSimple(rawConfig);
-    } else {
-      validateJson();
-    }
+    // Always open in simple mode by default. The user can switch to
+    // advanced mode via the tabs if they need to edit providers not
+    // listed in the simple dropdown or tweak advanced settings.
+    switchConfigMode("simple");
   } else {
     configOverlay.setAttribute("hidden", "");
   }
@@ -272,6 +326,8 @@ configSaveSimple?.addEventListener("click", async () => {
   const config = buildConfig();
   if (!config) return;
 
+  // If the API key field is empty but we had one from the server,
+  // keep the original key instead of replacing it with a placeholder.
   if (!configApikey.value.trim() && originalApiKey) {
     const providerId = configProvider.value;
     config.providers[providerId].apiKey = originalApiKey;
@@ -290,10 +346,15 @@ configFormat?.addEventListener("click", () => {
 
 configReset?.addEventListener("click", () => {
   if (configMode === "advanced") {
-    configEditor.value = originalConfig;
+    configEditor.value = serverConfig;
+    originalConfig = serverConfig;
     validateJson();
   } else {
-    parseConfigToSimple(JSON.parse(originalConfig || "{}"));
+    // Reset both the simple form and originalConfig to server state,
+    // so a subsequent simple-mode save doesn't resurrect advanced edits.
+    originalConfig = serverConfig;
+    configEditor.value = serverConfig;
+    parseConfigToSimple(JSON.parse(serverConfig || "{}"));
   }
 });
 

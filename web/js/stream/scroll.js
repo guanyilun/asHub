@@ -1,3 +1,5 @@
+import { state } from "../state.js";
+
 const stream = document.getElementById("stream");
 const pill = document.getElementById("scroll-pill");
 const emptyState = document.getElementById("stream-empty");
@@ -18,6 +20,13 @@ const scrollToBottom = () => {
   if (pill) pill.hidden = true;
 };
 
+/** Force-scroll to bottom immediately (used after replay flush). */
+export const forceScrollBottom = () => {
+  jumpToBottom();
+  stickToBottom = true;
+  if (pill) pill.hidden = true;
+};
+
 stream.addEventListener("scroll", () => {
   stickToBottom = isAtBottom();
   if (pill && stickToBottom) pill.hidden = true;
@@ -25,6 +34,9 @@ stream.addEventListener("scroll", () => {
 pill?.addEventListener("click", scrollToBottom);
 
 export const maybeScroll = () => {
+  // During SSE replay batching, skip scroll to avoid hundreds of forced
+  // layouts — the replay exit code will scroll once at the end.
+  if (state.replaying) return;
   if (stickToBottom) {
     jumpToBottom();
   } else if (pill) {

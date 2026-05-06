@@ -1,7 +1,6 @@
 import { maybeScroll } from "./scroll.js";
 
-const stream = document.getElementById("stream");
-
+let lastToolRow = null;  // cached ref to the most recent tool-row, avoids DOM scan
 let liveToolOutput = null;  // { callId, lines, blockEl, rafPending }
 const completedTools = new Set();
 
@@ -32,10 +31,11 @@ export const resetCompletedTools = () => {
 };
 
 // Output-chunk events have no toolCallId; attach to the latest tool-row.
+// Uses a cached row reference (set by sse.js on agent:tool-started) so we
+// never scan the growing DOM tree.
 export const appendLiveOutputChunk = (chunk) => {
   if (!chunk) return;
-  const rows = stream.querySelectorAll(".tool-row");
-  const row = rows.length > 0 ? rows[rows.length - 1] : null;
+  const row = lastToolRow;
   const callId = row?.dataset.callId ?? "";
 
   if (callId && completedTools.has(callId)) return;
@@ -102,4 +102,12 @@ export const absorbAsToolBody = (callId) => {
   }
   liveToolOutput = null;
   return true;
+};
+
+/**
+ * Called by sse.js when agent:tool-started fires so appendLiveOutputChunk
+ * can use a cached reference instead of scanning the entire stream DOM.
+ */
+export const trackToolRow = (row) => {
+  if (row) lastToolRow = row;
 };

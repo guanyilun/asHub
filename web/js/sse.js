@@ -1,6 +1,6 @@
 import { escape, stripAnsi, mdToHtml, highlightWithin, blockToText } from "./utils.js";
 import { sessionId, eventsUrl, state, setBusy } from "./state.js";
-import { maybeScroll } from "./stream/scroll.js";
+import { maybeScroll, forceScrollBottom } from "./stream/scroll.js";
 import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
 import {
   renderUsage, hideUsage, renderTurnSep, renderPromptRow, renderErrorCard,
@@ -15,7 +15,8 @@ import {
   sawLiveSegment, startNewSegment,
 } from "./stream/reply.js";
 import {
-  appendLiveOutputChunk, finalizeLiveOutput, resetCompletedTools, absorbAsToolBody,
+  appendLiveOutputChunk, finalizeLiveOutput, resetCompletedTools,
+  absorbAsToolBody, trackToolRow,
 } from "./stream/live-output.js";
 import { createUserBox } from "./actions.js";
 import { updateSessionTitle } from "./sidebar.js";
@@ -26,6 +27,38 @@ const stream = document.getElementById("stream");
 const conn = document.getElementById("conn");
 const dot = document.querySelector(".live-dot");
 const instanceLabel = document.getElementById("instance");
+
+// ── Replay batching ───────────────────────────────────────────────────
+// When SSE connects it replays buffered frames synchronously.  We run
+// expensive operations (scroll, compactReasoning, highlightWithin) only
+// once at the end instead of for every frame during replay.
+
+const REPLAY_FLUSH_DELAY = 12;  // ms — if no frames arrive within this window, replay is done
+
+let replayFlushTimer = null;
+
+const enterReplayMode = () => {
+  state.replaying = true;
+  // Safety fallback: if no frames arrive at all (empty session), exit
+  // replay mode after 500ms so the UI doesn't stay in batching state.
+  if (replayFlushTimer) clearTimeout(replayFlushTimer);
+  replayFlushTimer = setTimeout(exitReplayMode, 500);
+};
+
+const scheduleReplayFlush = () => {
+  if (!state.replaying) return;
+  if (replayFlushTimer) clearTimeout(replayFlushTimer);
+  replayFlushTimer = setTimeout(exitReplayMode, REPLAY_FLUSH_DELAY);
+};
+
+const exitReplayMode = () => {
+  state.replaying = false;
+  if (replayFlushTimer) { clearTimeout(replayFlushTimer); replayFlushTimer = null; }
+  // Run all deferred heavy work in one pass.
+  compactReasoning(stream);
+  highlightWithin(stream);  // cheap no-op if no code blocks exist
+  forceScrollBottom();
+};
 
 // Merge non-empty fields so a partial replay event doesn't blank known values.
 const agentInfo = { name: "", model: "" };
@@ -102,7 +135,8 @@ const handlers = {
     block.dataset.turn = String(state.currentTurn);
     block.innerHTML = mdToHtml(stripAnsi(p.text));
     append(block);
-    highlightWithin(block);
+    // Defer highlighting during replay batching.
+    if (!state.replaying) highlightWithin(block);
   },
 
   "agent:thinking-chunk": (p) => {
@@ -121,7 +155,10 @@ const handlers = {
     finalizeLiveOutput();
     renderUsage();
     setBusy(false);
-    compactReasoning(stream);
+    // Defer reasoning compaction during replay batching — the exit hook
+    // runs compactReasoning once on the whole stream.
+    if (!state.replaying) compactReasoning(stream);
+    scheduleReplayFlush();
   },
 
   "agent:cancelled": () => {
@@ -131,7 +168,8 @@ const handlers = {
     finalizeLiveOutput();
     stream.querySelectorAll(".agent-box.pending").forEach((el) => el.remove());
     setBusy(false);
-    compactReasoning(stream);
+    if (!state.replaying) compactReasoning(stream);
+    scheduleReplayFlush();
   },
 
   "agent:error": (p) => {
@@ -141,7 +179,8 @@ const handlers = {
     finalizeLiveOutput();
     append(renderErrorCard(p?.message ?? "", p?.detail ?? p?.stack));
     setBusy(false);
-    compactReasoning(stream);
+    if (!state.replaying) compactReasoning(stream);
+    scheduleReplayFlush();
   },
 
   "agent:usage": (p) => { state.lastUsage = p; },
@@ -156,7 +195,9 @@ const handlers = {
     finalizeThinking();
     finalizeLiveOutput();
     startNewSegment();
-    appendToGroup(buildToolRow(p));
+    const row = buildToolRow(p);
+    appendToGroup(row);
+    trackToolRow(row);  // cache for live-output to avoid DOM scan
     bumpToolCount();
     // Local "working…" hint for users scrolled past the bar spinner.
     if (state.isProcessing && !hasReply() && !hasThinkingBlock()) {
@@ -248,12 +289,30 @@ const handlers = {
       append(row);
     }
   },
+
+  // Hub sentinel: fired synchronously after the replay loop so the client
+  // can exit batching mode deterministically, even when live events from
+  // an active turn arrive immediately after replay.
+  "hub:replay-done": () => {
+    if (state.replaying) exitReplayMode();
+  },
 };
 
 const connect = () => {
   const es = new EventSource(eventsUrl);
-  es.onopen = () => { conn.textContent = ""; dot.classList.remove("stale"); };
-  es.onerror = () => { conn.textContent = "reconnecting…"; dot.classList.add("stale"); };
+  es.onopen = () => {
+    conn.textContent = "";
+    dot.classList.remove("stale");
+    // Enter replay batching mode — the hub is about to replay buffered
+    // frames.  We defer heavy work until replay finishes.
+    enterReplayMode();
+  };
+  es.onerror = () => {
+    conn.textContent = "reconnecting…";
+    dot.classList.add("stale");
+    // If we lost connection mid-replay, flush any remaining deferred work.
+    if (state.replaying) exitReplayMode();
+  };
   es.onmessage = (ev) => {
     let frame;
     try { frame = JSON.parse(ev.data); } catch { return; }
@@ -261,6 +320,9 @@ const connect = () => {
     if (fn) {
       try { fn(frame.payload); } catch (e) { console.error(frame.meta.name, e); }
     }
+    // Each frame resets the debounce timer.  When no frame arrives for
+    // REPLAY_FLUSH_DELAY ms, the replay batch is considered done.
+    scheduleReplayFlush();
   };
 };
 

@@ -52,7 +52,9 @@ export const closeReply = () => {
   currentReply.classList.remove("streaming");
   if (currentReplyText === "") {
     currentReply.remove();
-  } else {
+  } else if (!state.replaying) {
+    // Defer syntax highlighting during SSE replay batching — the replay
+    // exit code runs highlightWithin once on the whole stream.
     highlightWithin(currentReply);
   }
   currentReply = null;

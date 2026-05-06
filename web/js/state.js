@@ -11,6 +11,8 @@ export const state = {
   lastQuery: "",
   lastUsage: null,
   contextWindow: 0,
+  /** True while SSE replay frames are being batched. */
+  replaying: false,
 };
 
 const spinner = document.getElementById("spinner");
