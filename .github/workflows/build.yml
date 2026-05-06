@@ -1,14 +1,15 @@
-# Build macOS (ARM64) + Windows (x64) releases
+# Build macOS (ARM64) + Windows (x64) + Linux (x64) releases
 # Triggered on version tags (v*) and manually via workflow_dispatch.
 #
-# Both platforms build in parallel. After both succeed, a release job
+# All three platforms build in parallel. After all succeed, a release job
 # downloads all artifacts and creates a single GitHub Release — avoiding
-# the race condition caused by two parallel "Create Release" steps competing
+# the race condition caused by parallel "Create Release" steps competing
 # for the same tag.
 #
 # Output:
-#   - macOS: .dmg
+#   - macOS: .dmg + .zip
 #   - Windows: .exe (NSIS installer)
+#   - Linux: .AppImage
 
 name: Build and Release
 
@@ -62,7 +63,6 @@ jobs:
         run: npm run build
 
       - name: Build Electron app (macOS ARM64)
-        # --publish never: release is handled by the dedicated release job
         run: npx electron-builder --mac --arm64 --publish never
         env:
           CI: true
@@ -70,7 +70,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: agent-sh-hub-mac-arm64-${{ github.sha }}
+          name: asHub-mac-arm64-${{ github.sha }}
           path: |
             release/*.dmg
             release/*.zip
@@ -119,7 +119,6 @@ jobs:
         run: npm run build
 
       - name: Build Electron app (Windows x64)
-        # --publish never: release is handled by the dedicated release job
         run: npx electron-builder --win --x64 --publish never
         env:
           CI: true
@@ -127,15 +126,75 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: agent-sh-hub-win-x64-${{ github.sha }}
+          name: asHub-win-x64-${{ github.sha }}
           path: |
             release/*.exe
             release/*.blockmap
             release/latest.yml
           if-no-files-found: error
 
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-dev \
+            libnotify-dev \
+            libgconf-2-4 \
+            libnss3 \
+            libxss1 \
+            libasound2 \
+            libxtst6 \
+            xdg-utils
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Sync version from git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          node -e "
+            const fs = require('fs');
+            const version = '${{ github.ref_name }}'.replace(/^v/, '');
+            const pkg = JSON.parse(fs.readFileSync('package.json','utf-8'));
+            pkg.version = version;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: TypeScript build
+        run: npm run build
+
+      - name: Build Electron app (Linux x64)
+        run: npx electron-builder --linux --x64 --publish never
+        env:
+          CI: true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: asHub-linux-x64-${{ github.sha }}
+          path: |
+            release/*.AppImage
+            release/*.blockmap
+            release/latest-linux.yml
+          if-no-files-found: error
+
   release:
-    needs: [build-mac, build-win]
+    needs: [build-mac, build-win, build-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -144,13 +203,19 @@ jobs:
       - name: Download macOS artifacts
         uses: actions/download-artifact@v4
         with:
-          name: agent-sh-hub-mac-arm64-${{ github.sha }}
+          name: asHub-mac-arm64-${{ github.sha }}
           path: release/
 
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: agent-sh-hub-win-x64-${{ github.sha }}
+          name: asHub-win-x64-${{ github.sha }}
+          path: release/
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: asHub-linux-x64-${{ github.sha }}
           path: release/
 
       - name: List release assets
@@ -165,7 +230,6 @@ jobs:
 
           # ── helpers ──────────────────────────────────────────────
           api_call() {
-            # usage: api_call <method> <path> [data]
             local method="$1" path="$2" data="${3:-}"
             local extra_args=()
             [ -n "$data" ] && extra_args=(-d "$data")
@@ -204,7 +268,7 @@ jobs:
             return 1
           }
 
-          # ── check rate limit (from headers, no extra API call) ────
+          # ── check rate limit ────────────────────────────────────
           echo "=== Rate limit status ==="
           curl -sI -H "Authorization: Bearer $TOKEN" \
             "https://api.github.com/repos/$REPO" 2>/dev/null | \
@@ -221,7 +285,10 @@ jobs:
           UPLOAD_URL=$(echo "$BODY" | python3 -c "import json,sys; print(json.load(sys.stdin)['upload_url'].replace('{?name,label}',''))")
 
           # Upload each asset (with retry + backoff)
-          for f in release/*.dmg release/*.zip release/*.exe release/*.blockmap release/latest-mac.yml release/latest.yml; do
+          for f in \
+            release/*.dmg release/*.zip release/*.exe release/*.AppImage \
+            release/*.blockmap \
+            release/latest-mac.yml release/latest.yml release/latest-linux.yml; do
             [ -f "$f" ] || continue
             name=$(basename "$f")
             enc_name=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$name")
