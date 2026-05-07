@@ -331,6 +331,7 @@ const connect = () => {
     enterReplayMode();
   };
   es.onerror = () => {
+    hidePageLoader();
     conn.textContent = t("reconnecting");
     connState = "reconnecting";
     dot.classList.add("stale");
