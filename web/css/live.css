@@ -408,7 +408,7 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 .sidebar-title {
   color: var(--text-dim);
   letter-spacing: 0.1em;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .sidebar-btn {
@@ -475,7 +475,7 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   color: var(--text-mid);
   text-decoration: none;
   transition: all 0.2s ease;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   border-left: 2px solid transparent;
 }
 
@@ -529,7 +529,7 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   color: var(--accent);
   font-weight: 500;
   display: block;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .session-model {

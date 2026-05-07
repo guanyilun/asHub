@@ -148,7 +148,7 @@ const translations = {
 
   zh: {
     // ── HTML static strings ────────────────────────────────────────
-    "sessions": "会话",
+    "sessions": "会话列表",
     "new.session": "新建会话",
     "collapse.sidebar": "折叠侧边栏",
     "working.dir": "工作目录路径",
