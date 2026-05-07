@@ -275,7 +275,10 @@ export function startHub(opts: HubOpts): http.Server {
         res.end(JSON.stringify({ ok: true }));
         return;
       }
-      if (req.method === "GET" && rest === "/files") return listFiles(res, session);
+      if (req.method === "GET" && rest.startsWith("/files")) {
+        const params = new URLSearchParams(rest.split("?")[1] ?? "");
+        return listFiles(res, session, params.get("subdir") ?? "");
+      }
       if (req.method === "GET" && rest === "/context") return getContext(res, session);
       if (req.method === "POST" && rest === "/context/rewind") return rewindContext(req, res, session);
       if (req.method === "POST" && rest === "/context/rewind-to-turn") return rewindToTurn(req, res, session);
@@ -762,13 +765,23 @@ async function listDirs(res: http.ServerResponse, prefix: string): Promise<void>
   res.end(JSON.stringify({ items }));
 }
 
-async function listFiles(res: http.ServerResponse, session: Session): Promise<void> {
-  const cwd = session.cwd;
+async function listFiles(res: http.ServerResponse, session: Session, subdir?: string): Promise<void> {
+  let targetDir = session.cwd;
+  if (subdir) {
+    const resolved = path.resolve(session.cwd, subdir);
+    // Prevent directory traversal
+    if (!resolved.startsWith(path.resolve(session.cwd) + path.sep) && resolved !== path.resolve(session.cwd)) {
+      res.statusCode = 403;
+      res.end("forbidden");
+      return;
+    }
+    targetDir = resolved;
+  }
   let entries: fs.Dirent[];
-  try { entries = await fs.promises.readdir(cwd, { withFileTypes: true }); }
+  try { entries = await fs.promises.readdir(targetDir, { withFileTypes: true }); }
   catch {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ cwd, files: [] }));
+    res.end(JSON.stringify({ cwd: targetDir, files: [] }));
     return;
   }
   const files: Array<{ name: string; size: number; kind: "file" | "dir" }> = [];
@@ -783,7 +796,7 @@ async function listFiles(res: http.ServerResponse, session: Session): Promise<vo
     return a.name.localeCompare(b.name);
   });
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ cwd, files }));
+  res.end(JSON.stringify({ cwd: targetDir, files }));
 }
 
 function closeSession(res: http.ServerResponse, sessions: Map<string, Session>, id: string): void {
