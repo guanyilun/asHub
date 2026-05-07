@@ -274,7 +274,18 @@ export function startHub(opts: HubOpts): http.Server {
         return autocomplete(res, session, params.get("buffer") ?? "");
       }
       if (req.method === "POST" && rest === "/cancel") {
+        const wasProcessing = session.bridge.isProcessing?.() ?? false;
         try { session.bridge.cancel(); } catch (err) { console.error("[hub] cancel:", err); }
+        // If the bridge was not actually processing (e.g. restored session
+        // with a dangling processing-start in replay), force-push a cancel
+        // frame so the UI exits the stuck "thinking" state.
+        if (!wasProcessing) {
+          session.isProcessing = false;
+          pushFrame(session, "agent:cancelled", sseFrame(
+            { source: id, ts: Date.now(), id: `hub:${id}:cancel`, name: "agent:cancelled" },
+            {},
+          ));
+        }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
         return;
@@ -444,6 +455,29 @@ async function createSession(
 
   await bridge.ready();
   sessions.set(id, session);
+
+  // If the session was restored from disk and the replay ends with a
+  // dangling agent:processing-start (app was closed mid-response), inject
+  // an agent:cancelled frame so the UI does not get stuck in thinking.
+  if (existing?.replay && existing.replay.length > 0) {
+    let hasDangling = false;
+    for (let i = existing.replay.length - 1; i >= 0; i--) {
+      let name = "";
+      try {
+        const inner = JSON.parse(existing.replay[i].replace(/^data:\s*/, "").trimEnd());
+        name = (inner?.meta?.name ?? "") as string;
+      } catch { continue; }
+      if (name === "agent:processing-done" || name === "agent:cancelled" || name === "agent:error") break;
+      if (name === "agent:processing-start") { hasDangling = true; break; }
+    }
+    if (hasDangling) {
+      pushFrame(session, "agent:cancelled", sseFrame(
+        { source: id, ts: Date.now(), id: `hub:${id}:recovery`, name: "agent:cancelled" },
+        {},
+      ));
+    }
+  }
+
   if (!existing) {
     await saveSessionMeta(session);
   } else if (!existing.title) {

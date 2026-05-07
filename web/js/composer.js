@@ -1,6 +1,6 @@
 import { sessionId, submitUrl, state } from "./state.js";
-import { renderTurnSep } from "./stream/renderers.js";
-import { append } from "./stream/tool-group.js";
+import { escape } from "./utils.js";
+import { appendAfterPending } from "./stream/tool-group.js";
 import { createUserBox } from "./actions.js";
 import { attachAutocomplete } from "./autocomplete.js";
 
@@ -58,10 +58,20 @@ form?.addEventListener("submit", async (ev) => {
   let optimisticBox = null;
   let optimisticSep = null;
   if (!query.startsWith("/")) {
-    optimisticSep = renderTurnSep();
+    // Build turn separator (same as renderTurnSep in renderers.js),
+    // but appendAfterPending so it goes after any existing pending
+    // boxes — preserving queued-message submission order.
+    optimisticSep = document.createElement("div");
+    optimisticSep.className = "turn-sep";
+    optimisticSep.innerHTML =
+      `<span class="turn-line"></span>` +
+      (state.cwd ? `<span class="turn-cwd">${escape(state.cwd)}</span>` : "") +
+      `<span class="turn-time">${new Date().toLocaleTimeString()}</span>` +
+      `<span class="turn-line"></span>`;
+    appendAfterPending(optimisticSep);
     optimisticBox = createUserBox(query);
     optimisticBox.classList.add("pending");
-    append(optimisticBox);
+    appendAfterPending(optimisticBox);
   }
   input.disabled = true;
   try {

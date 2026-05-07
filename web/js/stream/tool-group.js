@@ -6,6 +6,27 @@ const TOOL_GROUP_COLLAPSE = 2;
 const groupState = new WeakMap();
 let currentToolGroup = null;
 
+/**
+ * Insert a node into the stream, before any trailing pending user-boxes.
+ * When the user sends messages while the agent is still streaming,
+ * composer.js appends optimistic ".agent-box.pending" elements at the end.
+ * New content from the current turn must be inserted BEFORE the first
+ * pending box — otherwise auto-scroll keeps jumping past it and the
+ * queued messages scroll out of view.
+ *
+ * We find the *first* pending box (not the last) so that when multiple
+ * messages are queued, streaming content stays before all of them and the
+ * pending boxes keep their relative submission order.
+ */
+export const insertStreamNode = (node) => {
+  const firstPending = stream.querySelector(".agent-box.pending");
+  if (firstPending) {
+    stream.insertBefore(node, firstPending);
+  } else {
+    stream.appendChild(node);
+  }
+};
+
 const toolCount = (g) => g.querySelectorAll(".tool-row").length;
 
 const updateToolGroupHead = (g) => {
@@ -32,7 +53,7 @@ const openToolGroup = () => {
   g.append(head, body);
   groupState.set(g, { head, body });
   hideEmptyState();
-  stream.appendChild(g);
+  insertStreamNode(g);
   currentToolGroup = g;
   maybeScroll();
   return g;
@@ -65,6 +86,18 @@ const closeToolGroup = () => {
 };
 
 export const append = (node) => {
+  closeToolGroup();
+  hideEmptyState();
+  insertStreamNode(node);
+  maybeScroll();
+};
+
+/**
+ * Append a node to the very end of the stream, after any pending boxes.
+ * Used for optimistic queued-message boxes, which must appear after all
+ * existing pending boxes to preserve submission order.
+ */
+export const appendAfterPending = (node) => {
   closeToolGroup();
   hideEmptyState();
   stream.appendChild(node);

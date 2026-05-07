@@ -1,7 +1,5 @@
 import { hideEmptyState, maybeScroll } from "./scroll.js";
-import { append } from "./tool-group.js";
-
-const stream = document.getElementById("stream");
+import { append, insertStreamNode } from "./tool-group.js";
 
 let thinkingEl = null;
 let thinkingBlock = null;
@@ -19,7 +17,7 @@ export const showThinking = () => {
     `<span class="thinking-dot"></span>` +
     `<span class="thinking-label">thinking…</span>`;
   hideEmptyState();
-  stream.appendChild(thinkingEl);
+  insertStreamNode(thinkingEl);
   maybeScroll();
 };
 

@@ -1,5 +1,7 @@
 import { escape } from "./utils.js";
 import { sessionId } from "./state.js";
+import { setFilesOpen } from "./files-panel.js";
+import { setConfigOpen } from "./config-panel.js";
 
 const app = document.querySelector(".app");
 const ctxPanel = document.getElementById("ctx-panel");
@@ -231,17 +233,27 @@ ctxFilters?.addEventListener("click", (ev) => {
 });
 
 const setCtxOpen = (on) => {
-  if (on) { ctxPanel.removeAttribute("hidden"); app.classList.add("ctx-open"); renderContext(); }
-  else { ctxPanel.setAttribute("hidden", ""); app.classList.remove("ctx-open"); }
+  if (on) {
+    // 互斥：关闭其他面板
+    setFilesOpen(false);
+    setConfigOpen(false);
+    ctxPanel.removeAttribute("hidden"); app.classList.add("ctx-open"); renderContext(); ctxToggle?.classList.add("active");
+  }
+  else { ctxPanel.setAttribute("hidden", ""); app.classList.remove("ctx-open"); ctxToggle?.classList.remove("active"); }
   try { localStorage.setItem(LS_CTX, on ? "1" : "0"); } catch {}
 };
 
-try {
-  if (localStorage.getItem(LS_CTX) === "1") setCtxOpen(true);
-} catch {}
+// 延迟初始化，避免循环依赖导致的 TDZ 错误
+setTimeout(() => {
+  try {
+    if (localStorage.getItem(LS_CTX) === "1") setCtxOpen(true);
+  } catch {}
+}, 0);
 
 ctxToggle?.addEventListener("click", () => setCtxOpen(ctxPanel.hasAttribute("hidden")));
 ctxClose?.addEventListener("click", () => setCtxOpen(false));
+
+export { setCtxOpen };
 
 document.addEventListener("keydown", (ev) => {
   const meta = ev.metaKey || ev.ctrlKey;

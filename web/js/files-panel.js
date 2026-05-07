@@ -1,4 +1,6 @@
 import { sessionId } from "./state.js";
+import { setCtxOpen } from "./context-panel.js";
+import { setConfigOpen } from "./config-panel.js";
 
 const app = document.querySelector(".app");
 const filesPanel = document.getElementById("files-panel");
@@ -195,8 +197,13 @@ const fetchFiles = async () => {
 };
 
 const setFilesOpen = (on) => {
-  if (on) { filesPanel.removeAttribute("hidden"); app.classList.add("files-open"); fetchFiles(); }
-  else { filesPanel.setAttribute("hidden", ""); app.classList.remove("files-open"); }
+  if (on) {
+    // 互斥：关闭其他面板
+    setCtxOpen(false);
+    setConfigOpen(false);
+    filesPanel.removeAttribute("hidden"); app.classList.add("files-open"); fetchFiles(); filesToggle?.classList.add("active");
+  }
+  else { filesPanel.setAttribute("hidden", ""); app.classList.remove("files-open"); filesToggle?.classList.remove("active"); }
   try { localStorage.setItem(LS_FILES, on ? "1" : "0"); } catch {}
 };
 
@@ -204,9 +211,14 @@ filesToggle?.addEventListener("click", () => setFilesOpen(filesPanel.hasAttribut
 filesClose?.addEventListener("click", () => setFilesOpen(false));
 filesRefresh?.addEventListener("click", () => fetchFiles());
 
-try {
-  if (localStorage.getItem(LS_FILES) === "1") setFilesOpen(true);
-} catch {}
+// 延迟初始化，避免循环依赖导致的 TDZ 错误
+setTimeout(() => {
+  try {
+    if (localStorage.getItem(LS_FILES) === "1") setFilesOpen(true);
+  } catch {}
+}, 0);
+
+export { setFilesOpen };
 
 export const refreshFilesIfOpen = () => {
   if (filesPanel && !filesPanel.hasAttribute("hidden")) fetchFiles();

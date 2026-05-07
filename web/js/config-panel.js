@@ -1,3 +1,6 @@
+import { setFilesOpen } from "./files-panel.js";
+import { setCtxOpen } from "./context-panel.js";
+
 const configOverlay = document.getElementById("config-overlay");
 const configToggle = document.getElementById("config-toggle");
 const configClose = document.getElementById("config-close");
@@ -253,7 +256,12 @@ configProvider?.addEventListener("change", () => {
 
 export const setConfigOpen = async (on) => {
   if (on) {
+    // 互斥：关闭其他面板
+    setFilesOpen(false);
+    setCtxOpen(false);
     configOverlay.removeAttribute("hidden");
+    configOverlay.classList.add("open");
+    configToggle?.classList.add("active");
     let rawConfig = {};
     try {
       const r = await fetch("/api/config");
@@ -277,6 +285,8 @@ export const setConfigOpen = async (on) => {
     switchConfigMode("simple");
   } else {
     configOverlay.setAttribute("hidden", "");
+    configOverlay.classList.remove("open");
+    configToggle?.classList.remove("active");
   }
 };
 
@@ -360,6 +370,3 @@ configReset?.addEventListener("click", () => {
 
 configToggle?.addEventListener("click", () => setConfigOpen(configOverlay.hasAttribute("hidden")));
 configClose?.addEventListener("click", () => setConfigOpen(false));
-configOverlay?.addEventListener("click", (ev) => {
-  if (ev.target === configOverlay) setConfigOpen(false);
-});

@@ -183,24 +183,26 @@
 /* ── Responsive ───────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .app, .app.ctx-open, .app.files-open, .app.ctx-open.files-open {
-    grid-template-columns: 56px 1fr 0 0;
+    grid-template-columns: 56px 1fr;
   }
   .session-list, .sidebar-title { display: none; }
   .sidebar-toggle { display: none; }
   .sidebar-head { padding: 0.7rem 0.5rem; justify-content: center; }
   .ctx-panel {
-    position: fixed;
-    top: 0; right: 0; bottom: 0;
-    width: min(400px, 92vw);
+    width: min(300px, 92vw);
     z-index: 20;
     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
   }
   .files-panel {
-    position: fixed;
-    top: 0; right: 0; bottom: 0;
-    width: min(280px, 85vw);
+    width: min(300px, 85vw);
     z-index: 19;
     box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
+  }
+  .app.ctx-open.files-open .files-panel {
+    right: calc(48px + min(300px, 92vw));
+  }
+  .config-overlay {
+    width: min(300px, 90vw);
   }
   .live-wrap .terminal-body { padding: 0.9rem 1rem; }
 }
@@ -263,26 +265,17 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 .app {
   display: grid;
-  grid-template-columns: 260px 1fr 0 0;
+  grid-template-columns: 260px 1fr;
   height: 100vh;
   overflow: hidden;
   transition: grid-template-columns 0.35s var(--ease-in-out);
+  padding-right: 48px; /* space for toolbar */
 }
-.app.ctx-open { grid-template-columns: 260px 1fr 420px 0; }
-.app.files-open { grid-template-columns: 260px 1fr 0 260px; }
-.app.ctx-open.files-open { grid-template-columns: 260px 1fr 420px 260px; }
-.app.sidebar-collapsed { grid-template-columns: 56px 1fr 0 0; }
-.app.sidebar-collapsed.ctx-open { grid-template-columns: 56px 1fr 420px 0; }
-.app.sidebar-collapsed.files-open { grid-template-columns: 56px 1fr 0 260px; }
-.app.sidebar-collapsed.ctx-open.files-open { grid-template-columns: 56px 1fr 420px 260px; }
+.app.sidebar-collapsed { grid-template-columns: 56px 1fr; }
 
-/* Explicit grid-column prevents `display: none` elements from
-   shifting the auto-placement of remaining grid items, ensuring
-   each panel always maps to its intended column. */
+/* Explicit grid-column assignment */
 .sidebar { grid-column: 1; }
 .main { grid-column: 2; }
-.ctx-panel { grid-column: 3; }
-.files-panel { grid-column: 4; }
 .app.sidebar-collapsed .session-list,
 .app.sidebar-collapsed .sidebar-title { display: none; }
 .app.sidebar-collapsed .sidebar-head {
@@ -300,6 +293,77 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 .app.sidebar-collapsed #new-session { margin: 0; }
 .app.sidebar-collapsed .sidebar-toggle { margin: 0; }
 .app.sidebar-collapsed .new-session-form { display: none; }
+
+/* ── Toolbar ─────────────────────────────────────────────────────── */
+.toolbar {
+  position: fixed;
+  top: 0;
+  left: auto;
+  right: 0;
+  bottom: 0;
+  width: 48px;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 0.65rem 0;
+  background: var(--bg3);
+  border-left: 1px solid var(--border);
+}
+
+.toolbar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -1px;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(180deg, var(--accent) 0%, var(--cyan) 40%, var(--purple) 80%, transparent 100%);
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-mid);
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out-expo);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.toolbar-btn:hover {
+  color: var(--accent);
+  background: var(--accent-glow);
+  border-color: var(--accent-border);
+}
+
+.toolbar-btn:active {
+  transform: scale(0.93);
+}
+
+.toolbar-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
+
+.toolbar-sep {
+  width: 24px;
+  height: 1px;
+  background: var(--border);
+  margin: 0.2rem 0;
+  flex-shrink: 0;
+}
 
 /* ── Sidebar ─────────────────────────────────────────────────────── */
 .sidebar {
@@ -1693,22 +1757,6 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   transform: translateY(-1px);
 }
 
-/* ── Bar actions group (files, ctx, config, theme) ──────────────── */
-.bar-sep {
-  width: 1px;
-  height: 1.5rem;
-  background: var(--border);
-  flex-shrink: 0;
-  margin: 0 0.1rem;
-}
-
-.bar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-left: auto;
-}
-
 /* ── Cancel button ───────────────────────────────────────────────── */
 .cancel-btn {
   font-size: 0.68rem;
@@ -1739,9 +1787,6 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   transition: all 0.05s;
 }
 
-/* Push context/settings/theme buttons to the right */
-#ctx-toggle { margin-left: auto; }
-
 .cancel-btn.flash {
   color: #fff !important;
   background: var(--red-dim) !important;
@@ -1757,12 +1802,20 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 /* ── Context panel ───────────────────────────────────────────────── */
 .ctx-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 48px;
+  width: 300px;
+  z-index: 15;
   border-left: 1px solid var(--border);
   background: var(--bg2);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  position: relative;
+  transform: translateX(calc(100% + 48px));
+  transition: transform 0.35s var(--ease-in-out);
+  box-shadow: var(--shadow-lg);
 }
 
 .ctx-panel::before {
@@ -1777,7 +1830,15 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   pointer-events: none;
 }
 
-.ctx-panel[hidden] { display: none; }
+.ctx-panel[hidden] {
+  display: flex !important;
+  pointer-events: none;
+}
+
+.app.ctx-open .ctx-panel {
+  transform: translateX(0);
+  pointer-events: auto;
+}
 
 .ctx-head {
   display: flex;
@@ -1999,12 +2060,20 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
 
 /* ── Files panel ─────────────────────────────────────────────────── */
 .files-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 48px;
+  width: 300px;
+  z-index: 14;
   border-left: 1px solid var(--border);
   background: var(--bg2);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  position: relative;
+  transform: translateX(calc(100% + 48px));
+  transition: transform 0.35s var(--ease-in-out), right 0.35s var(--ease-in-out);
+  box-shadow: var(--shadow-lg);
 }
 
 .files-panel::before {
@@ -2019,7 +2088,20 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   pointer-events: none;
 }
 
-.files-panel[hidden] { display: none; }
+.files-panel[hidden] {
+  display: flex !important;
+  pointer-events: none;
+}
+
+.app.files-open .files-panel {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+/* When both panels open, shift files panel left of ctx panel */
+.app.ctx-open.files-open .files-panel {
+  right: calc(48px + 300px);
+}
 
 .files-head {
   display: flex;
@@ -2238,38 +2320,60 @@ body { min-height: 100vh; padding: 0; font-size: 15px; }
   to   { opacity: 1; transform: translateX(0); }
 }
 
-/* ── Config overlay ─────────────────────────────────────────────── */
+/* ── Config panel (slide-out from toolbar) ───────────────────────── */
 .config-overlay {
   position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  animation: overlay-in 0.2s ease-out;
-}
-
-@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
-.config-overlay[hidden] { display: none; animation: none; }
-
-.config-modal {
-  width: min(700px, 92vw);
-  max-height: 85vh;
+  top: 0;
+  bottom: 0;
+  right: 48px;
+  width: 300px;
+  z-index: 16;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
   overflow: hidden;
-  animation: modal-in 0.3s var(--ease-out-back);
+  transform: translateX(calc(100% + 48px));
+  transition: transform 0.35s var(--ease-in-out);
+  box-shadow: var(--shadow-lg);
 }
 
-@keyframes modal-in {
-  from { opacity: 0; transform: scale(0.95) translateY(16px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+.config-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -1px;
+  width: 1px;
+  height: 100%;
+  background: linear-gradient(180deg, var(--purple) 0%, var(--accent) 50%, transparent 85%);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
+.config-overlay[hidden] {
+  display: flex !important;
+  pointer-events: none;
+}
+
+.config-overlay.open {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.config-modal {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
 }
 
 .config-head {
