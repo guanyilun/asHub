@@ -103,7 +103,9 @@ const renderSessions = async () => {
       if (isCurrent) {
         a.addEventListener("click", (ev) => ev.preventDefault());
       } else {
-        a.addEventListener("click", () => {
+        a.addEventListener("click", (ev) => {
+          // Skip exit transition for new-tab/window opens
+          if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
           document.body.classList.add("exiting");
         });
       }
@@ -155,6 +157,11 @@ const renderSessions = async () => {
 
 renderSessions();
 setInterval(renderSessions, 5000);
+
+// Clean up exit transition class on bfcache restore (Back button)
+window.addEventListener("pageshow", (ev) => {
+  if (ev.persisted) document.body.classList.remove("exiting");
+});
 
 // Force re-render on language switch so tooltips update immediately
 document.addEventListener("langchange", () => {
