@@ -70,6 +70,8 @@ const scheduleReplayFlush = () => {
 const exitReplayMode = () => {
   state.replaying = false;
   if (replayFlushTimer) { clearTimeout(replayFlushTimer); replayFlushTimer = null; }
+  // Content is fully rendered — hide the page loader.
+  hidePageLoader();
   // Run all deferred heavy work in one pass.
   compactReasoning(stream);
   highlightWithin(stream);  // cheap no-op if no code blocks exist
@@ -321,7 +323,6 @@ const handlers = {
 const connect = () => {
   const es = new EventSource(eventsUrl);
   es.onopen = () => {
-    hidePageLoader();
     conn.textContent = "";
     connState = "connected";
     dot.classList.remove("stale");
