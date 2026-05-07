@@ -1,5 +1,6 @@
 import { escape } from "./utils.js";
 import { sessionId, submitUrl, state } from "./state.js";
+import { t } from "./i18n.js";
 
 // Atomic server-side rewind — keeps the snapshot→rewind gap race-free.
 const rewindToTurn = async (turn) => {
@@ -10,7 +11,7 @@ const rewindToTurn = async (turn) => {
   });
   if (!res.ok) {
     const msg = await res.text();
-    throw new Error(msg || `rewind failed (${res.status})`);
+    throw new Error(msg || t("rewind.failed", { status: res.status }));
   }
 };
 
@@ -40,12 +41,12 @@ const deleteTurn = async (el) => {
   if (state.isProcessing) return;
   const turn = Number(el.dataset.turn);
   if (!Number.isInteger(turn) || turn < 0) return;
-  if (!confirm("Delete this turn and everything after it?")) return;
+  if (!confirm(t("delete.turn.confirm"))) return;
   try {
     await rewindToTurn(turn);
     location.reload();
   } catch (e) {
-    alert(`Delete failed: ${e.message ?? e}`);
+    alert(t("delete.failed", { msg: e.message ?? e }));
   }
 };
 
@@ -58,14 +59,14 @@ const regenTurn = async (box) => {
   try {
     await rewindToTurn(turn);
   } catch (e) {
-    alert(`Regenerate failed: ${e.message ?? e}`);
+    alert(t("regen.failed", { msg: e.message ?? e }));
     return;
   }
 
   try {
     await submitAndReload(query);
   } catch (e) {
-    alert(`Regenerate: message resubmit failed.\n${e.message ?? e}`);
+    alert(t("regen.resubmit.failed", { msg: e.message ?? e }));
   }
   location.reload();
 };
@@ -81,9 +82,9 @@ const cancelEdit = (box) => {
     const actions = box.querySelector(".msg-actions");
     if (actions) {
       actions.innerHTML = `
-        <button class="msg-action-btn" data-action="edit" title="Edit message">✎</button>
-        <button class="msg-action-btn" data-action="regen" title="Regenerate response">↻</button>
-        <button class="msg-action-btn danger" data-action="delete" title="Delete turn">✕</button>`;
+        <button class="msg-action-btn" data-action="edit" title="${t("edit.message")}">✎</button>
+        <button class="msg-action-btn" data-action="regen" title="${t("regen.response")}">↻</button>
+        <button class="msg-action-btn danger" data-action="delete" title="${t("delete.turn")}">✕</button>`;
       actions.querySelector('[data-action="edit"]')?.addEventListener("click", () => editUserMsg(box));
       actions.querySelector('[data-action="regen"]')?.addEventListener("click", () => regenTurn(box));
       actions.querySelector('[data-action="delete"]')?.addEventListener("click", () => deleteTurn(box));
@@ -114,14 +115,14 @@ const saveEdit = async (box) => {
     await rewindToTurn(turn);
   } catch (e) {
     box._editingLocked = false;
-    alert(`Edit failed: ${e.message ?? e}`);
+    alert(t("edit.failed", { msg: e.message ?? e }));
     return;
   }
 
   try {
     await submitAndReload(newText);
   } catch (e) {
-    alert(`Edit: message resubmit failed.\n${e.message ?? e}`);
+    alert(t("edit.resubmit.failed", { msg: e.message ?? e }));
   }
   location.reload();
 };
@@ -137,8 +138,8 @@ const editUserMsg = (box) => {
   const actions = box.querySelector(".msg-actions");
   if (actions) {
     actions.innerHTML = `
-      <button class="msg-action-btn" data-action="save" title="Save (Enter)">✓</button>
-      <button class="msg-action-btn" data-action="cancel" title="Cancel (Esc)">✗</button>`;
+      <button class="msg-action-btn" data-action="save" title="${t("save")}">✓</button>
+      <button class="msg-action-btn" data-action="cancel" title="${t("cancel")}">✗</button>`;
     actions.querySelector('[data-action="save"]')?.addEventListener("click", () => saveEdit(box));
     actions.querySelector('[data-action="cancel"]')?.addEventListener("click", () => cancelEdit(box));
   }
@@ -176,15 +177,15 @@ export const createUserBox = (queryText) => {
   box.innerHTML = `
     <div class="agent-box-head">
       <span class="abh-l">&gt;</span>
-      <span class="abh-r">you</span>
+      <span class="abh-r">${t("you")}</span>
     </div>
     <div class="q-text">${escape(queryText)}</div>`;
   const actions = document.createElement("div");
   actions.className = "msg-actions";
   actions.innerHTML = `
-    <button class="msg-action-btn" data-action="edit" title="Edit message">✎</button>
-    <button class="msg-action-btn" data-action="regen" title="Regenerate response">↻</button>
-    <button class="msg-action-btn danger" data-action="delete" title="Delete turn">✕</button>`;
+    <button class="msg-action-btn" data-action="edit" title="${t("edit.message")}">✎</button>
+    <button class="msg-action-btn" data-action="regen" title="${t("regen.response")}">↻</button>
+    <button class="msg-action-btn danger" data-action="delete" title="${t("delete.turn")}">✕</button>`;
   actions.querySelector('[data-action="edit"]')?.addEventListener("click", () => editUserMsg(box));
   actions.querySelector('[data-action="regen"]')?.addEventListener("click", () => regenTurn(box));
   actions.querySelector('[data-action="delete"]')?.addEventListener("click", () => deleteTurn(box));

@@ -1,3 +1,5 @@
+import { t } from "./i18n.js";
+
 marked.setOptions({ breaks: true, gfm: true });
 
 export const escape = (s) => String(s ?? "")
@@ -72,7 +74,7 @@ export const copyToClipboard = async (text, btn) => {
     await navigator.clipboard.writeText(text);
     if (btn) {
       const prev = btn.textContent;
-      btn.textContent = "copied";
+      btn.textContent = t("copied");
       setTimeout(() => { btn.textContent = prev; }, 1200);
     }
   } catch (e) { console.error("clipboard", e); }

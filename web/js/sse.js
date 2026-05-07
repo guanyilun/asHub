@@ -1,5 +1,6 @@
 import { escape, stripAnsi, mdToHtml, highlightWithin, blockToText } from "./utils.js";
 import { sessionId, eventsUrl, state, setBusy } from "./state.js";
+import { t } from "./i18n.js";
 import { maybeScroll, forceScrollBottom } from "./stream/scroll.js";
 import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
 import {
@@ -27,6 +28,9 @@ const stream = document.getElementById("stream");
 const conn = document.getElementById("conn");
 const dot = document.querySelector(".live-dot");
 const instanceLabel = document.getElementById("instance");
+
+// Track connection state so langchange can refresh the correct text
+let connState = "connecting"; // "connecting" | "connected" | "reconnecting" | "nosession"
 
 // ── Replay batching ───────────────────────────────────────────────────
 // When SSE connects it replays buffered frames synchronously.  We run
@@ -265,7 +269,7 @@ const handlers = {
     append(row);
   },
   "ui:error": (p) => {
-    append(renderErrorCard(p?.message ?? "command failed", null));
+    append(renderErrorCard(p?.message || t("command.failed"), null));
   },
 
   "shell:command-start": (p) => {
@@ -282,7 +286,7 @@ const handlers = {
     const text = stripAnsi(p?.output ?? "");
     const isErr = p?.exitCode != null && p.exitCode !== 0;
     if (isErr) {
-      append(renderErrorCard(`shell command failed (exit ${p.exitCode})`, text));
+      append(renderErrorCard(t("shell.failed", { code: p.exitCode }), text));
       return;
     }
     for (const line of text.split("\n")) {
@@ -306,13 +310,15 @@ const connect = () => {
   const es = new EventSource(eventsUrl);
   es.onopen = () => {
     conn.textContent = "";
+    connState = "connected";
     dot.classList.remove("stale");
     // Enter replay batching mode — the hub is about to replay buffered
     // frames.  We defer heavy work until replay finishes.
     enterReplayMode();
   };
   es.onerror = () => {
-    conn.textContent = "reconnecting…";
+    conn.textContent = t("reconnecting");
+    connState = "reconnecting";
     dot.classList.add("stale");
     // If we lost connection mid-replay, flush any remaining deferred work.
     if (state.replaying) exitReplayMode();
@@ -330,9 +336,22 @@ const connect = () => {
   };
 };
 
+// Set initial connection status with i18n (HTML has fallback text)
+conn.textContent = t("connecting");
+connState = "connecting";
+
 if (sessionId) {
   connect();
 } else {
-  conn.textContent = "no session — click + to create";
+  conn.textContent = t("no.session");
+  connState = "nosession";
   dot.classList.add("stale");
 }
+
+// Refresh connection status text when language changes
+document.addEventListener("langchange", () => {
+  if (connState === "connecting") conn.textContent = t("connecting");
+  else if (connState === "reconnecting") conn.textContent = t("reconnecting");
+  else if (connState === "nosession") conn.textContent = t("no.session");
+  // "connected" → keep empty
+});

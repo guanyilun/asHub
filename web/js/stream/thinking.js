@@ -1,5 +1,6 @@
 import { hideEmptyState, maybeScroll } from "./scroll.js";
 import { append, insertStreamNode } from "./tool-group.js";
+import { t } from "../i18n.js";
 
 let thinkingEl = null;
 let thinkingBlock = null;
@@ -15,7 +16,7 @@ export const showThinking = () => {
     `<span class="thinking-dot"></span>` +
     `<span class="thinking-dot"></span>` +
     `<span class="thinking-dot"></span>` +
-    `<span class="thinking-label">thinking…</span>`;
+    `<span class="thinking-label">${t("thinking")}</span>`;
   hideEmptyState();
   insertStreamNode(thinkingEl);
   maybeScroll();
@@ -61,7 +62,7 @@ export const appendThinkingChunk = (text) => {
     thinkingBlock = block;
     const head = document.createElement("div");
     head.className = "thinking-block-head";
-    head.textContent = "thinking…";
+    head.textContent = t("thinking");
     head.addEventListener("click", () => {
       setThinkingCollapsed(block, !block.classList.contains("collapsed"));
     });
@@ -86,7 +87,7 @@ export const finalizeThinking = () => {
     thinkingBlock.remove();
   } else {
     const head = thinkingBlock.querySelector(".thinking-block-head");
-    if (head) head.textContent = "thought";
+    if (head) head.textContent = t("thought");
     setThinkingCollapsed(thinkingBlock, true);
   }
   thinkingBlock = null;

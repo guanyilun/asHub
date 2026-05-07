@@ -4,6 +4,7 @@ import {
 } from "../utils.js";
 import { state } from "../state.js";
 import { append } from "./tool-group.js";
+import { t } from "../i18n.js";
 
 const usageEl = document.getElementById("usage");
 const usageStrip = document.getElementById("usage-strip");
@@ -24,18 +25,18 @@ export const renderUsage = () => {
   }
   const totalTok = state.lastUsage.total_tokens ?? (inTok + outTok);
   const cacheHtml = (cacheHit > 0 || cacheMiss > 0)
-    ? `<span class="usage-chip usage-cache" title="cache hit / miss">` +
+    ? `<span class="usage-chip usage-cache" title="${t("usage.cache")}">` +
         `<span class="cache-dot hit"></span>${fmtNum(cacheHit)}` +
         `<span class="cache-sep">/</span>` +
         `<span class="cache-dot miss"></span>${fmtNum(cacheMiss)}` +
       `</span>`
     : "";
   usageEl.innerHTML =
-    `<span class="usage-chip" title="input tokens">↑ ${fmtNum(inTok)}</span>` +
-    `<span class="usage-chip" title="output tokens">↓ ${fmtNum(outTok)}</span>` +
-    `<span class="usage-chip" title="total tokens">Σ ${fmtNum(totalTok)}</span>` +
+    `<span class="usage-chip" title="${t("usage.input")}">↑ ${fmtNum(inTok)}</span>` +
+    `<span class="usage-chip" title="${t("usage.output")}">↓ ${fmtNum(outTok)}</span>` +
+    `<span class="usage-chip" title="${t("usage.total")}">Σ ${fmtNum(totalTok)}</span>` +
     cacheHtml +
-    `<span class="usage-chip usage-ctx" title="context usage">` +
+    `<span class="usage-chip usage-ctx" title="${t("usage.context")}">` +
       (state.contextWindow > 0
         ? `<span class="usage-bar"><span style="width:${pct}%"></span></span>`
         : "") +
@@ -75,14 +76,14 @@ export const renderErrorCard = (message, detail) => {
   head.className = "err-card-head";
   head.innerHTML =
     `<span class="err-card-icon">!</span>` +
-    `<span class="err-card-title">${escape(message || "Error")}</span>`;
+    `<span class="err-card-title">${escape(message || t("error"))}</span>`;
   card.appendChild(head);
   const detailText = String(detail ?? "").trim();
   if (detailText) {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "err-card-toggle";
-    toggle.textContent = "show details";
+    toggle.textContent = t("show.details");
     head.appendChild(toggle);
     const body = document.createElement("pre");
     body.className = "err-card-body";
@@ -90,7 +91,7 @@ export const renderErrorCard = (message, detail) => {
     body.hidden = true;
     toggle.addEventListener("click", () => {
       body.hidden = !body.hidden;
-      toggle.textContent = body.hidden ? "show details" : "hide details";
+      toggle.textContent = body.hidden ? t("show.details") : t("hide.details");
     });
     card.appendChild(body);
   }
@@ -108,8 +109,8 @@ export const renderDiffBlock = (diff, filePath) => {
     `<span class="diff-path">${escape(filePath ?? "")}</span>` +
     `<span class="diff-stat">${sign}</span>` +
     `<span class="diff-actions">` +
-      `<button class="diff-btn diff-wrap" title="toggle wrap">wrap</button>` +
-      `<button class="diff-btn diff-copy" title="copy patch">copy</button>` +
+      `<button class="diff-btn diff-wrap" title="${t("diff.toggle.wrap")}">${t("wrap")}</button>` +
+      `<button class="diff-btn diff-copy" title="${t("diff.copy.patch")}">${t("copy")}</button>` +
     `</span>`;
   wrap.appendChild(head);
   head.querySelector(".diff-wrap").addEventListener("click", () => {
@@ -160,7 +161,7 @@ export const buildToolRow = (p) => {
   const icon = p?.icon ?? "·";
   const raw = (p?.rawInput && typeof p.rawInput === "object") ? p.rawInput : {};
   // agent-loop appends ": <description>" to bash titles; strip it.
-  let title = p?.title ?? "tool";
+  let title = p?.title ?? t("tool");
   if (raw.command && title.includes(":")) title = title.split(":")[0];
 
   let detail = p?.displayDetail;
@@ -186,14 +187,14 @@ export const buildToolRow = (p) => {
     const detailEl = row.querySelector(".tool-detail");
     if (detailEl) {
       detailEl.classList.add("tool-cmd-collapsed");
-      detailEl.title = "click to expand command";
+      detailEl.title = t("click.expand.cmd");
       detailEl.style.cursor = "pointer";
       detailEl.addEventListener("click", () => {
         const expanded = detailEl.classList.toggle("tool-cmd-expanded");
         detailEl.textContent = expanded
           ? "$ " + cmdFull
           : "$ " + cmdFull.slice(0, CMD_COLLAPSE).trimEnd() + "…";
-        detailEl.title = expanded ? "click to collapse command" : "click to expand command";
+        detailEl.title = expanded ? t("click.collapse.cmd") : t("click.expand.cmd");
       });
     }
   }
@@ -227,8 +228,8 @@ export const renderToolBody = (lines) => {
   const setExpanded = (on) => {
     pre.textContent = on ? all : lines.slice(0, TOOL_BODY_COLLAPSE).join("\n");
     if (toggle) toggle.textContent = on
-      ? "show less"
-      : `show ${lines.length - TOOL_BODY_COLLAPSE} more`;
+      ? t("show.less")
+      : t("show.n.more", { n: lines.length - TOOL_BODY_COLLAPSE });
     wrap.classList.toggle("expanded", on);
   };
 
@@ -236,7 +237,7 @@ export const renderToolBody = (lines) => {
   actions.className = "tool-body-actions";
   const copyBtn = document.createElement("button");
   copyBtn.className = "tool-body-btn";
-  copyBtn.textContent = "copy";
+  copyBtn.textContent = t("copy");
   copyBtn.addEventListener("click", () => copyToClipboard(all, copyBtn));
   let toggle = null;
   if (hasMore) {

@@ -2,6 +2,7 @@ import { mdToHtml, highlightWithin, stripAnsi } from "../utils.js";
 import { state } from "../state.js";
 import { append } from "./tool-group.js";
 import { maybeScroll } from "./scroll.js";
+import { t } from "../i18n.js";
 
 let currentReply = null;
 let currentReplyText = "";
@@ -66,7 +67,7 @@ export const cancelReply = () => {
     currentReply.classList.add("cancelled");
     const stamp = document.createElement("span");
     stamp.className = "cancelled-stamp";
-    stamp.textContent = "cancelled";
+    stamp.textContent = t("cancelled");
     currentReply.appendChild(stamp);
   }
   closeReply();

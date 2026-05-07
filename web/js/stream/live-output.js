@@ -1,4 +1,5 @@
 import { maybeScroll } from "./scroll.js";
+import { t } from "../i18n.js";
 
 let lastToolRow = null;  // cached ref to the most recent tool-row, avoids DOM scan
 let liveToolOutput = null;  // { callId, lines, blockEl, rafPending }
@@ -85,14 +86,14 @@ export const absorbAsToolBody = (callId) => {
     textEl.textContent = lines.slice(0, LIMIT).join("\n");
     const toggle = document.createElement("button");
     toggle.className = "tool-body-btn";
-    toggle.textContent = `show ${lines.length - LIMIT} more`;
+    toggle.textContent = t("show.n.more", { n: lines.length - LIMIT });
     let expanded = false;
     toggle.addEventListener("click", () => {
       expanded = !expanded;
       textEl.textContent = expanded ? all : lines.slice(0, LIMIT).join("\n");
       toggle.textContent = expanded
-        ? "show less"
-        : `show ${lines.length - LIMIT} more`;
+        ? t("show.less")
+        : t("show.n.more", { n: lines.length - LIMIT });
       blockEl.classList.toggle("expanded", expanded);
     });
     actions.appendChild(toggle);

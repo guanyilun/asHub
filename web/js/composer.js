@@ -3,6 +3,7 @@ import { escape } from "./utils.js";
 import { appendAfterPending } from "./stream/tool-group.js";
 import { createUserBox } from "./actions.js";
 import { attachAutocomplete } from "./autocomplete.js";
+import { attachPromptAutocomplete } from "./prompt-manager.js";
 
 const form = document.getElementById("form");
 const input = document.getElementById("query");
@@ -28,7 +29,10 @@ const submitSlash = async (raw) => {
 const slashAc = attachAutocomplete({
   inputEl: input,
   listEl: document.getElementById("autocomplete"),
-  shouldOpen: (b) => b.trimStart().startsWith("/"),
+  shouldOpen: (b) => {
+    const t = b.trimStart();
+    return t.startsWith("/") && !t.startsWith("//");
+  },
   fetcher: async (buffer) => {
     const r = await fetch(`/${sessionId}/autocomplete?buffer=${encodeURIComponent(buffer)}`);
     if (!r.ok) return [];
@@ -41,12 +45,19 @@ const slashAc = attachAutocomplete({
   },
 });
 
+const promptAc = attachPromptAutocomplete(input);
+
+const hasAcSelection = () => slashAc.hasSelection() || promptAc.hasSelection();
+const acceptAc = () => {
+  if (promptAc.hasSelection()) { promptAc.acceptCurrent(); return true; }
+  if (slashAc.hasSelection()) { slashAc.acceptCurrent(); return true; }
+  return false;
+};
+
 form?.addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  if (slashAc.hasSelection()) {
-    slashAc.acceptCurrent();
-    return;
-  }
+  if (acceptAc()) return;
+
   const query = input.value.trim();
   if (!query) return;
   if (state.isSubmitting) return;
@@ -55,6 +66,7 @@ form?.addEventListener("submit", async (ev) => {
   input.value = "";
   input.style.height = "";
   slashAc.close();
+  promptAc.close();
   let optimisticBox = null;
   let optimisticSep = null;
   if (!query.startsWith("/")) {
@@ -97,7 +109,7 @@ form?.addEventListener("submit", async (ev) => {
 
 input?.addEventListener("keydown", (ev) => {
   if (ev.shiftKey) return;
-  if (ev.key === "Enter" && !slashAc.hasSelection()) {
+  if (ev.key === "Enter" && !hasAcSelection()) {
     ev.preventDefault();
     form.dispatchEvent(new Event("submit", { cancelable: true }));
   } else if (ev.key === "ArrowUp" && !input.value && state.lastQuery) {

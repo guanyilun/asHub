@@ -1,3 +1,5 @@
+import { lang, setLang } from "./i18n.js";
+
 const LS_THEME = "ash-theme";
 const LS_SIDEBAR = "ash.sidebar-collapsed";
 
@@ -8,6 +10,7 @@ const themeIconMoon = document.getElementById("theme-icon-moon");
 const hljsDark = document.getElementById("hljs-dark");
 const hljsLight = document.getElementById("hljs-light");
 const sidebarToggle = document.getElementById("sidebar-toggle");
+const langToggle = document.getElementById("lang-toggle");
 
 const setTheme = (theme) => {
   document.documentElement.setAttribute("data-theme", theme);
@@ -42,4 +45,8 @@ try {
 
 sidebarToggle?.addEventListener("click", () => {
   setSidebarCollapsed(!app.classList.contains("sidebar-collapsed"));
+});
+
+langToggle?.addEventListener("click", () => {
+  setLang(lang() === "zh" ? "en" : "zh");
 });

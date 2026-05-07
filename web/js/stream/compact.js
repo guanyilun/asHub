@@ -1,3 +1,5 @@
+import { t } from "../i18n.js";
+
 /**
  * Fuse consecutive "thinking-block + tool-group" pairs into a single
  * collapsible container so multi-round reasoning (think → tools → think → …)
@@ -56,9 +58,9 @@ export function compactReasoning(stream) {
     head.className = "reasoning-phase-head";
     head.innerHTML =
       `<span class="rp-arrow">▸</span>` +
-      `<span class="rp-label">${pairs} reasoning rounds</span>` +
-      `<span class="rp-stat">${totalTools} tools</span>` +
-      `<span class="rp-kind">thought</span>`;
+      `<span class="rp-label">${t("n.reasoning.rounds", { n: pairs })}</span>` +
+      `<span class="rp-stat">${t("n.tools.compact", { n: totalTools })}</span>` +
+      `<span class="rp-kind">${t("thought")}</span>`;
     phase.appendChild(head);
 
     const body = document.createElement("div");

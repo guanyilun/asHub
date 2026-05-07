@@ -1,6 +1,7 @@
 import { sessionId } from "./state.js";
 import { setCtxOpen } from "./context-panel.js";
 import { setConfigOpen } from "./config-panel.js";
+import { t } from "./i18n.js";
 
 const app = document.querySelector(".app");
 const filesPanel = document.getElementById("files-panel");
@@ -12,6 +13,9 @@ const filesCwd = document.getElementById("files-cwd");
 const filesEmpty = document.getElementById("files-empty");
 
 const LS_FILES = "ash.files-open";
+
+// Set initial text (JS manages this dynamically, so no data-i18n in HTML)
+if (filesEmpty) filesEmpty.textContent = t("files.loading");
 
 // Track expanded directories: key = full path, value = child container element
 const expandedDirs = new Map();
@@ -63,7 +67,7 @@ const makeEntryEl = (f, basePath) => {
   el.appendChild(icon);
   el.appendChild(name);
   el.appendChild(kb);
-  el.title = `double-click to insert "${f.name}"`;
+  el.title = t("files.dblclick.hint", { name: f.name });
 
   // Double-click: paste name into query input
   el.addEventListener("dblclick", () => {
@@ -154,7 +158,7 @@ const renderFiles = (files, basePath) => {
   expandedDirs.clear();
 
   if (files.length === 0) {
-    showFilesEmpty(basePath ? "empty directory" : "no files", basePath ? "" : "the working directory is empty or contains only hidden files");
+    showFilesEmpty(basePath ? t("files.empty.dir") : t("files.no.files"), basePath ? "" : t("files.empty.hint"));
     return;
   }
   filesEmpty.hidden = true;
@@ -181,8 +185,8 @@ filesBody?.addEventListener("click", (e) => {
 
 const fetchFiles = async () => {
   if (!filesBody || !filesCwd || !filesEmpty) return;
-  if (!sessionId) { showFilesEmpty("no session", "create a session from the sidebar to browse files"); return; }
-  showFilesEmpty("loading…");
+  if (!sessionId) { showFilesEmpty(t("files.no.session"), t("files.no.session.hint")); return; }
+  showFilesEmpty(t("files.loading"));
   filesBody.querySelectorAll(":scope > .files-entry, :scope > .files-children").forEach((el) => el.remove());
   expandedDirs.clear();
   try {
@@ -192,7 +196,7 @@ const fetchFiles = async () => {
     filesCwd.title = data.cwd || "";
     renderFiles(data.files || [], "");
   } catch {
-    showFilesEmpty("failed to load", "check that the working directory exists");
+    showFilesEmpty(t("files.failed"), t("files.failed.hint"));
   }
 };
 
@@ -201,6 +205,12 @@ const setFilesOpen = (on) => {
     // 互斥：关闭其他面板
     setCtxOpen(false);
     setConfigOpen(false);
+    const promptOverlay = document.getElementById("prompt-overlay");
+    if (promptOverlay && !promptOverlay.hasAttribute("hidden")) {
+      promptOverlay.setAttribute("hidden", "");
+      promptOverlay.classList.remove("open");
+      document.getElementById("prompt-toggle")?.classList.remove("active");
+    }
     filesPanel.removeAttribute("hidden"); app.classList.add("files-open"); fetchFiles(); filesToggle?.classList.add("active");
   }
   else { filesPanel.setAttribute("hidden", ""); app.classList.remove("files-open"); filesToggle?.classList.remove("active"); }
@@ -219,6 +229,11 @@ setTimeout(() => {
 }, 0);
 
 export { setFilesOpen };
+
+// Refresh files panel content when language changes while panel is open
+document.addEventListener("langchange", () => {
+  if (filesPanel && !filesPanel.hasAttribute("hidden")) fetchFiles();
+});
 
 export const refreshFilesIfOpen = () => {
   if (filesPanel && !filesPanel.hasAttribute("hidden")) fetchFiles();

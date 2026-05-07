@@ -1,6 +1,7 @@
 import { escape } from "./utils.js";
 import { sessionId, state } from "./state.js";
 import { attachAutocomplete } from "./autocomplete.js";
+import { t } from "./i18n.js";
 
 const sessionList = document.getElementById("sessions");
 const newForm = document.getElementById("new-session-form");
@@ -113,7 +114,7 @@ const renderSessions = async () => {
 
       const editBtn = document.createElement("button");
       editBtn.className = "session-edit";
-      editBtn.title = "edit title";
+      editBtn.title = t("edit.title");
       editBtn.textContent = "✎";
       editBtn.addEventListener("click", (ev) => {
         ev.preventDefault();
@@ -124,12 +125,12 @@ const renderSessions = async () => {
 
       const close = document.createElement("button");
       close.className = "session-close";
-      close.title = "close session";
+      close.title = t("close.session");
       close.textContent = "×";
       close.addEventListener("click", async (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
-        if (!confirm(`Close session ${escape(s.title || s.instanceId)}?`)) return;
+        if (!confirm(t("close.session.confirm", { title: escape(s.title || s.instanceId) }))) return;
         try {
           await fetch(`/${s.instanceId}/`, { method: "DELETE" });
         } catch {}
@@ -148,6 +149,12 @@ const renderSessions = async () => {
 
 renderSessions();
 setInterval(renderSessions, 5000);
+
+// Force re-render on language switch so tooltips update immediately
+document.addEventListener("langchange", () => {
+  sessionsHash = "";
+  renderSessions();
+});
 
 // Inline update — a full re-render would clobber an in-progress title edit.
 export const updateSessionTitle = (sid, title) => {

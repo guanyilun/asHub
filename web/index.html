@@ -19,14 +19,14 @@
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-head">
-        <span class="sidebar-title">Sessions</span>
-        <button id="new-session" class="sidebar-btn" title="New session">
+        <span class="sidebar-title" data-i18n="sessions">Sessions</span>
+        <button id="new-session" class="sidebar-btn" data-i18n-title="new.session" title="New session">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
             <line x1="7" y1="2" x2="7" y2="12"></line>
             <line x1="2" y1="7" x2="12" y2="7"></line>
           </svg>
         </button>
-        <button id="sidebar-toggle" class="sidebar-btn sidebar-toggle" title="Collapse sidebar">
+        <button id="sidebar-toggle" class="sidebar-btn sidebar-toggle" data-i18n-title="collapse.sidebar" title="Collapse sidebar">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="8 3 4 6 8 9"></polyline>
           </svg>
@@ -34,7 +34,7 @@
       </div>
       <form id="new-session-form" class="new-session-form" hidden>
         <div class="new-session-input-wrap">
-          <input id="new-session-cwd" type="text" autocomplete="off" placeholder="Working directory path" spellcheck="false" />
+          <input id="new-session-cwd" type="text" autocomplete="off" data-i18n-placeholder="working.dir" placeholder="Working directory path" spellcheck="false" />
           <ul class="autocomplete autocomplete-cwd" id="cwd-autocomplete" hidden></ul>
         </div>
         <div class="new-session-err" id="new-session-err" hidden></div>
@@ -51,7 +51,7 @@
             <span class="live-status" id="conn">connecting…</span>
             <span class="version-label" id="version-label" title="checking for updates…"></span>
             <span class="spinner" id="spinner" hidden></span>
-            <button class="bar-btn cancel-btn" id="cancel-turn" hidden title="Interrupt response (Esc)">
+            <button class="bar-btn cancel-btn" id="cancel-turn" hidden data-i18n-title="interrupt" title="Interrupt response (Esc)">
               <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
                 <rect x="0" y="0" width="10" height="10" rx="1.5"></rect>
               </svg>
@@ -83,14 +83,14 @@
                 </div>
                 <div class="stream-empty-line"></div>
               </div>
-              <div class="stream-empty-title">ready when you are.</div>
-              <div class="stream-empty-sub">ask anything — the agent can explore files, run commands, <em>reason</em>, and edit code.</div>
+              <div class="stream-empty-title" data-i18n="ready">ready when you are.</div>
+              <div class="stream-empty-sub" data-i18n-html="ready.sub">ask anything — the agent can explore files, run commands, <em>reason</em>, and edit code.</div>
               <button class="stream-empty-prompt" id="stream-empty-prompt">
                 <span class="c-arrow">⟩</span>
-                <span>start typing below…</span>
+                <span data-i18n="start.typing">start typing below…</span>
               </button>
               <div class="stream-empty-hint">
-                <span class="kbd-hint"><kbd>⌘K</kbd> focus · <kbd>↑</kbd> recall · <kbd>Esc</kbd> cancel · <kbd>⌘\</kbd> context</span>
+                <span class="kbd-hint" data-i18n-html="shortcuts"><kbd>⌘K</kbd> focus · <kbd>↑</kbd> recall · <kbd>Esc</kbd> cancel · <kbd>⌘\</kbd> context</span>
               </div>
             </div>
           </div>
@@ -99,14 +99,14 @@
               <line x1="5" y1="1" x2="5" y2="9"></line>
               <polyline points="3 7 5 9 7 7"></polyline>
             </svg>
-            new output
+            <span data-i18n="new.output">new output</span>
           </button>
           <div class="usage-strip" id="usage-strip" hidden>
             <span class="terminal-usage" id="usage"></span>
           </div>
           <form class="live-input" id="form">
             <span class="c-arrow">⟩</span>
-            <textarea id="query" autocomplete="off" placeholder="ask the agent…" rows="1"></textarea>
+            <textarea id="query" autocomplete="off" data-i18n-placeholder="ask.agent" placeholder="ask the agent…" rows="1"></textarea>
             <ul class="autocomplete" id="autocomplete" hidden></ul>
           </form>
         </div>
@@ -115,15 +115,15 @@
 
     <aside class="ctx-panel" id="ctx-panel" hidden>
       <div class="ctx-head">
-        <span class="ctx-title">Context</span>
+        <span class="ctx-title" data-i18n="context">Context</span>
         <span class="ctx-meta" id="ctx-meta"></span>
-        <button class="bar-btn icon" id="ctx-refresh" title="Refresh">
+        <button class="bar-btn icon" id="ctx-refresh" data-i18n-title="refresh" title="Refresh">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
             <path d="M12 7a5 5 0 1 1-1.2-3.2"></path>
             <polyline points="9.5 1 12 1 12 3.5"></polyline>
           </svg>
         </button>
-        <button class="bar-btn icon" id="ctx-close" title="Close">
+        <button class="bar-btn icon" id="ctx-close" data-i18n-title="close" title="Close">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
             <line x1="2" y1="2" x2="10" y2="10"></line>
             <line x1="10" y1="2" x2="2" y2="10"></line>
@@ -131,11 +131,11 @@
         </button>
       </div>
       <div class="ctx-filters" id="ctx-filters">
-        <button class="ctx-chip" data-role="all" data-active="1">all</button>
-        <button class="ctx-chip" data-role="system"><span class="ctx-dot system"></span>system</button>
-        <button class="ctx-chip" data-role="user"><span class="ctx-dot user"></span>user</button>
-        <button class="ctx-chip" data-role="assistant"><span class="ctx-dot assistant"></span>assistant</button>
-        <button class="ctx-chip" data-role="tool"><span class="ctx-dot tool"></span>tool</button>
+        <button class="ctx-chip" data-role="all" data-active="1" data-i18n="ctx.all">all</button>
+        <button class="ctx-chip" data-role="system"><span class="ctx-dot system"></span><span data-i18n="ctx.system">system</span></button>
+        <button class="ctx-chip" data-role="user"><span class="ctx-dot user"></span><span data-i18n="ctx.user">user</span></button>
+        <button class="ctx-chip" data-role="assistant"><span class="ctx-dot assistant"></span><span data-i18n="ctx.assistant">assistant</span></button>
+        <button class="ctx-chip" data-role="tool"><span class="ctx-dot tool"></span><span data-i18n="ctx.tool">tool</span></button>
       </div>
       <div class="ctx-actions">
         <button class="bar-btn" id="ctx-drop" title="Drop selected messages" disabled>drop</button>
@@ -145,15 +145,15 @@
 
     <aside class="files-panel" id="files-panel" hidden>
       <div class="files-head">
-        <span class="files-title">Files</span>
+        <span class="files-title" data-i18n="files">Files</span>
         <span class="files-cwd" id="files-cwd" title=""></span>
-        <button class="bar-btn icon" id="files-refresh" title="Refresh">
+        <button class="bar-btn icon" id="files-refresh" data-i18n-title="refresh" title="Refresh">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
             <path d="M12 7a5 5 0 1 1-1.2-3.2"></path>
             <polyline points="9.5 1 12 1 12 3.5"></polyline>
           </svg>
         </button>
-        <button class="bar-btn icon" id="files-close" title="Close">
+        <button class="bar-btn icon" id="files-close" data-i18n-title="close" title="Close">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
             <line x1="2" y1="2" x2="10" y2="10"></line>
             <line x1="10" y1="2" x2="2" y2="10"></line>
@@ -166,19 +166,19 @@
     </aside>
 
     <nav class="toolbar" id="toolbar">
-      <button class="toolbar-btn" id="files-toggle" title="Browse files">
+      <button class="toolbar-btn" id="files-toggle" data-i18n-title="browse.files" title="Browse files">
         <svg width="18" height="18" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
           <path d="M1 3.5a1.5 1.5 0 0 1 1.5-1.5h3L7 4h4.5a1.5 1.5 0 0 1 1.5 1.5V11a1.5 1.5 0 0 1-1.5 1.5H2.5A1.5 1.5 0 0 1 1 11V3.5z"/>
         </svg>
       </button>
-      <button class="toolbar-btn" id="ctx-toggle" title="Inspect context">
+      <button class="toolbar-btn" id="ctx-toggle" data-i18n-title="inspect.context" title="Inspect context">
         <svg width="18" height="18" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
           <rect x="1" y="1" width="12" height="12" rx="2"></rect>
           <line x1="4" y1="5" x2="10" y2="5"></line>
           <line x1="4" y1="8" x2="8" y2="8"></line>
         </svg>
       </button>
-      <button class="toolbar-btn" id="config-toggle" title="Settings">
+      <button class="toolbar-btn" id="config-toggle" data-i18n-title="settings" title="Settings">
         <svg width="18" height="18" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
           <line x1="1.5" y1="4" x2="12.5" y2="4"/>
           <circle cx="8" cy="4" r="1.6"/>
@@ -186,8 +186,22 @@
           <circle cx="5" cy="9" r="1.6"/>
         </svg>
       </button>
+      <button class="toolbar-btn" id="prompt-toggle" data-i18n-title="quick.prompts" title="Quick prompts">
+        <svg width="18" height="18" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 2h4l2 3h4a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/>
+          <line x1="4" y1="6.5" x2="10" y2="6.5"/>
+          <line x1="4" y1="8.5" x2="8" y2="8.5"/>
+        </svg>
+      </button>
+      <button class="toolbar-btn" id="lang-toggle" data-i18n-title="toggle.lang" title="Switch language">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </button>
       <div class="toolbar-sep"></div>
-      <button class="toolbar-btn" id="theme-toggle" title="Toggle theme">
+      <button class="toolbar-btn" id="theme-toggle" data-i18n-title="toggle.theme" title="Toggle theme">
         <svg id="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="4"/>
           <line x1="12" y1="2" x2="12" y2="4"/>
@@ -208,20 +222,20 @@
     <div class="config-overlay" id="config-overlay" hidden>
       <div class="config-modal">
         <div class="config-head">
-          <span class="config-title">Settings</span>
+          <span class="config-title" data-i18n="settings">Settings</span>
           <div class="config-mode-tabs" id="config-mode-tabs">
-            <button class="config-mode-tab active" data-mode="simple">Simple</button>
-            <button class="config-mode-tab" data-mode="advanced">Advanced</button>
+            <button class="config-mode-tab active" data-mode="simple" data-i18n="simple">Simple</button>
+            <button class="config-mode-tab" data-mode="advanced" data-i18n="advanced">Advanced</button>
           </div>
           <span class="config-path" id="config-path">~/.agent-sh/settings.json</span>
           <div class="config-head-actions">
-            <button class="bar-btn icon" id="config-reset" title="Reset to defaults">
+            <button class="bar-btn icon" id="config-reset" data-i18n-title="reset.defaults" title="Reset to defaults">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                 <path d="M12 7a5 5 0 1 1-1.2-3.2"></path>
                 <polyline points="9.5 1 12 1 12 3.5"></polyline>
               </svg>
             </button>
-            <button class="bar-btn icon" id="config-close" title="Close">
+            <button class="bar-btn icon" id="config-close" data-i18n-title="close" title="Close">
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
                 <line x1="2" y1="2" x2="10" y2="10"></line>
                 <line x1="10" y1="2" x2="2" y2="10"></line>
@@ -232,7 +246,7 @@
         <!-- Simple config mode -->
         <div class="config-body" id="config-body-simple">
           <div class="config-field">
-            <label class="config-label" for="config-provider">Provider</label>
+            <label class="config-label" for="config-provider" data-i18n="provider">Provider</label>
             <div class="config-select-wrap">
               <select id="config-provider" class="config-select">
                 <option value="deepseek">DeepSeek</option>
@@ -245,20 +259,20 @@
             <span class="config-hint" id="config-provider-desc">DeepSeek V4 models with 1M context window</span>
           </div>
           <div class="config-field">
-            <label class="config-label" for="config-apikey">API Key</label>
+            <label class="config-label" for="config-apikey" data-i18n="api.key">API Key</label>
             <div class="config-apikey-wrap">
               <input id="config-apikey" class="config-input" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
-              <button class="config-apikey-toggle" id="config-apikey-toggle" type="button" title="Show/hide API key">
+              <button class="config-apikey-toggle" id="config-apikey-toggle" type="button" data-i18n-title="show.hide.apikey" title="Show/hide API key">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M2 8s2.5-5 6-5 6 5 6 5-2.5 5-6 5-6-5-6-5z"/>
                   <circle cx="8" cy="8" r="2"/>
                 </svg>
               </button>
             </div>
-            <span class="config-hint">Your API key is stored locally in ~/.agent-sh/settings.json</span>
+            <span class="config-hint" data-i18n="apikey.hint">Your API key is stored locally in ~/.agent-sh/settings.json</span>
           </div>
           <div class="config-actions">
-            <button class="bar-btn config-btn-save" id="config-save-simple">save & reload</button>
+            <button class="bar-btn config-btn-save" id="config-save-simple" data-i18n="save.reload">save & reload</button>
           </div>
         </div>
         <!-- Advanced config mode (JSON editor) -->
@@ -266,14 +280,54 @@
           <div class="config-editor">
             <textarea id="config-editor" class="config-textarea" spellcheck="false"></textarea>
             <div class="config-editor-status">
-              <span class="config-status-valid" id="config-valid" hidden>✓ valid json</span>
-              <span class="config-status-invalid" id="config-invalid" hidden>✗ invalid json</span>
+              <span class="config-status-valid" id="config-valid" hidden data-i18n="valid.json">✓ valid json</span>
+              <span class="config-status-invalid" id="config-invalid" hidden data-i18n="invalid.json">✗ invalid json</span>
             </div>
           </div>
           <div class="config-actions">
-            <button class="bar-btn config-btn-save" id="config-save">save & reload</button>
-            <button class="bar-btn" id="config-format">format</button>
+            <button class="bar-btn config-btn-save" id="config-save" data-i18n="save.reload">save & reload</button>
+            <button class="bar-btn" id="config-format" data-i18n="format">format</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="prompt-overlay" id="prompt-overlay" hidden>
+      <div class="prompt-modal">
+        <div class="prompt-head">
+          <span class="prompt-title" data-i18n="quick.prompts">Quick Prompts</span>
+          <div class="prompt-head-actions">
+            <button class="bar-btn icon" id="prompt-close" data-i18n-title="close" title="Close">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                <line x1="2" y1="2" x2="10" y2="10"></line>
+                <line x1="10" y1="2" x2="2" y2="10"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="prompt-body" id="prompt-body">
+          <div class="prompt-list-wrap">
+            <ul class="prompt-list" id="prompt-list">
+              <li class="prompt-empty" id="prompt-empty" data-i18n="prompts.empty">No quick prompts yet — add one below.</li>
+            </ul>
+          </div>
+          <div class="prompt-editor" id="prompt-editor" hidden>
+            <input id="prompt-editor-name" class="prompt-editor-input" type="text" data-i18n-placeholder="prompts.name.placeholder" placeholder="Prompt name (shown in list)" autocomplete="off" spellcheck="false" />
+            <textarea id="prompt-editor-content" class="prompt-editor-textarea" data-i18n-placeholder="prompts.content.placeholder" placeholder="Prompt content (inserted on //Tab)" rows="3" autocomplete="off" spellcheck="false"></textarea>
+            <div class="prompt-editor-actions">
+              <button class="bar-btn prompt-editor-save" id="prompt-editor-save" data-i18n="prompts.add">add</button>
+              <button class="bar-btn" id="prompt-editor-cancel" data-i18n="cancel">cancel</button>
+            </div>
+          </div>
+        </div>
+        <div class="prompt-footer">
+          <button class="bar-btn prompt-add-btn" id="prompt-add-btn">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <line x1="6" y1="1" x2="6" y2="11"></line>
+              <line x1="1" y1="6" x2="11" y2="6"></line>
+            </svg>
+            <span data-i18n="prompts.add.prompt">add prompt</span>
+          </button>
         </div>
       </div>
     </div>

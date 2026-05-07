@@ -2,6 +2,7 @@ import { escape } from "./utils.js";
 import { sessionId } from "./state.js";
 import { setFilesOpen } from "./files-panel.js";
 import { setConfigOpen } from "./config-panel.js";
+import { t } from "./i18n.js";
 
 const app = document.querySelector(".app");
 const ctxPanel = document.getElementById("ctx-panel");
@@ -12,6 +13,9 @@ const ctxBody = document.getElementById("ctx-body");
 const ctxMeta = document.getElementById("ctx-meta");
 const ctxDrop = document.getElementById("ctx-drop");
 const ctxFilters = document.getElementById("ctx-filters");
+
+// Set initial text (JS manages this dynamically, so no data-i18n in HTML)
+if (ctxDrop) ctxDrop.textContent = t("drop");
 
 const LS_CTX = "ash.ctx-open";
 
@@ -59,7 +63,7 @@ const messageText = (m) => {
         const parsed = typeof args === "string" ? JSON.parse(args) : args;
         args = JSON.stringify(parsed, null, 2);
       } catch {}
-      return `→ ${fn.name ?? "tool"}(\n${args}\n)`;
+      return `→ ${fn.name ?? t("tool")}(\n${args}\n)`;
     }).join("\n\n");
   }
   if (m?.role === "tool") return String(m.content ?? "");
@@ -76,9 +80,9 @@ const updateDropButton = () => {
   if (selected.size > 0) {
     let tok = 0;
     for (const i of selected) tok += tokensOf(currentMsgs[i]);
-    ctxDrop.textContent = `drop ${selected.size} · ~${fmtTok(tok)}`;
+    ctxDrop.textContent = `${t("ctx.drop.n", { n: selected.size })} · ~${fmtTok(tok)}`;
   } else {
-    ctxDrop.textContent = "drop";
+    ctxDrop.textContent = t("drop");
   }
 };
 
@@ -104,8 +108,8 @@ const applyCtxFilter = () => {
 
 const renderContext = async () => {
   selected.clear();
-  if (!sessionId) { ctxBody.innerHTML = '<div class="ctx-empty">no session</div>'; updateDropButton(); return; }
-  ctxBody.innerHTML = '<div class="ctx-empty">loading…</div>';
+  if (!sessionId) { ctxBody.innerHTML = `<div class="ctx-empty">${t("ctx.no.session")}</div>`; updateDropButton(); return; }
+  ctxBody.innerHTML = `<div class="ctx-empty">${t("ctx.loading")}</div>`;
   let data;
   try {
     const res = await fetch(`/${sessionId}/context`);
@@ -119,11 +123,11 @@ const renderContext = async () => {
   const msgs = Array.isArray(data.messages) ? data.messages : [];
   currentMsgs = msgs;
   currentGroups = computeGroups(msgs);
-  ctxMeta.textContent = `${msgs.length} msgs · ${fmtTok(data.activeTokens ?? 0)}/${fmtTok(data.contextWindow ?? 0)}`;
+  ctxMeta.textContent = `${t("ctx.n.msgs", { n: msgs.length })} · ${fmtTok(data.activeTokens ?? 0)}/${fmtTok(data.contextWindow ?? 0)}`;
 
   ctxBody.innerHTML = "";
   if (msgs.length === 0) {
-    ctxBody.innerHTML = '<div class="ctx-empty">empty</div>';
+    ctxBody.innerHTML = `<div class="ctx-empty">${t("ctx.empty")}</div>`;
     updateDropButton();
     return;
   }
@@ -174,12 +178,12 @@ const renderContext = async () => {
     const chev = document.createElement("button");
     chev.type = "button";
     chev.className = "ctx-chevron";
-    chev.textContent = "▾ expand";
+    chev.textContent = t("ctx.expand");
     chev.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const on = !body.classList.contains("expanded");
       body.classList.toggle("expanded", on);
-      chev.textContent = on ? "▴ collapse" : "▾ expand";
+      chev.textContent = on ? t("ctx.collapse") : t("ctx.expand");
     });
     body.appendChild(chev);
     wrap.appendChild(body);
@@ -205,7 +209,7 @@ ctxDrop?.addEventListener("click", async () => {
     });
     if (!res.ok) throw new Error(await res.text());
   } catch (e) {
-    alert(`drop failed: ${e.message ?? e}`);
+    alert(t("ctx.drop.failed", { msg: e.message ?? e }));
     return;
   }
   renderContext();
@@ -237,6 +241,12 @@ const setCtxOpen = (on) => {
     // 互斥：关闭其他面板
     setFilesOpen(false);
     setConfigOpen(false);
+    const promptOverlay = document.getElementById("prompt-overlay");
+    if (promptOverlay && !promptOverlay.hasAttribute("hidden")) {
+      promptOverlay.setAttribute("hidden", "");
+      promptOverlay.classList.remove("open");
+      document.getElementById("prompt-toggle")?.classList.remove("active");
+    }
     ctxPanel.removeAttribute("hidden"); app.classList.add("ctx-open"); renderContext(); ctxToggle?.classList.add("active");
   }
   else { ctxPanel.setAttribute("hidden", ""); app.classList.remove("ctx-open"); ctxToggle?.classList.remove("active"); }
@@ -252,6 +262,11 @@ setTimeout(() => {
 
 ctxToggle?.addEventListener("click", () => setCtxOpen(ctxPanel.hasAttribute("hidden")));
 ctxClose?.addEventListener("click", () => setCtxOpen(false));
+
+// Refresh context panel content when language changes while panel is open
+document.addEventListener("langchange", () => {
+  if (ctxPanel && !ctxPanel.hasAttribute("hidden")) renderContext();
+});
 
 export { setCtxOpen };
 

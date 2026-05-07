@@ -1,3 +1,4 @@
+import "./i18n.js";
 import { cancelTurn } from "./composer.js";
 import { setConfigOpen } from "./config-panel.js";
 import "./prefs.js";

@@ -1,4 +1,5 @@
 import { hideEmptyState, maybeScroll } from "./scroll.js";
+import { t } from "../i18n.js";
 
 const stream = document.getElementById("stream");
 
@@ -32,7 +33,7 @@ const toolCount = (g) => g.querySelectorAll(".tool-row").length;
 const updateToolGroupHead = (g) => {
   const { head } = groupState.get(g);
   const arrow = g.classList.contains("collapsed") ? "▸" : "▾";
-  head.textContent = `${arrow} ${toolCount(g)} tools`;
+  head.textContent = `${arrow} ${t("n.tools", { n: toolCount(g) })}`;
 };
 
 const openToolGroup = () => {

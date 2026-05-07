@@ -1,5 +1,6 @@
 import { setFilesOpen } from "./files-panel.js";
 import { setCtxOpen } from "./context-panel.js";
+import { t } from "./i18n.js";
 
 const configOverlay = document.getElementById("config-overlay");
 const configToggle = document.getElementById("config-toggle");
@@ -30,7 +31,7 @@ let originalApiKey = "";
 const PROVIDERS = {
   deepseek: {
     name: "DeepSeek",
-    description: "DeepSeek V4 models with 1M context window",
+    description: "DeepSeek V4 models with 1M context window",  // i18n'd in updateProviderDesc
     baseURL: "https://api.deepseek.com",
     defaultModel: "deepseek-v4-flash",
     models: [
@@ -160,9 +161,8 @@ const parseConfigToSimple = (config) => {
 
 const updateProviderDesc = () => {
   const providerId = configProvider.value;
-  const def = PROVIDERS[providerId];
-  if (def && configProviderDesc) {
-    configProviderDesc.textContent = def.description;
+  if (configProviderDesc) {
+    configProviderDesc.textContent = t(`provider.desc.${providerId}`);
   }
 };
 
@@ -259,6 +259,12 @@ export const setConfigOpen = async (on) => {
     // 互斥：关闭其他面板
     setFilesOpen(false);
     setCtxOpen(false);
+    const promptOverlay = document.getElementById("prompt-overlay");
+    if (promptOverlay && !promptOverlay.hasAttribute("hidden")) {
+      promptOverlay.setAttribute("hidden", "");
+      promptOverlay.classList.remove("open");
+      document.getElementById("prompt-toggle")?.classList.remove("active");
+    }
     configOverlay.removeAttribute("hidden");
     configOverlay.classList.add("open");
     configToggle?.classList.add("active");
@@ -323,7 +329,7 @@ const doSave = async (jsonStr) => {
     originalConfig = jsonStr;
     setConfigOpen(false);
   } catch (e) {
-    alert(`save failed: ${e.message ?? e}`);
+    alert(t("config.save.failed", { msg: e.message ?? e }));
   }
 };
 
@@ -370,3 +376,10 @@ configReset?.addEventListener("click", () => {
 
 configToggle?.addEventListener("click", () => setConfigOpen(configOverlay.hasAttribute("hidden")));
 configClose?.addEventListener("click", () => setConfigOpen(false));
+
+// Refresh provider description when language changes while panel is open
+document.addEventListener("langchange", () => {
+  if (configOverlay && !configOverlay.hasAttribute("hidden")) {
+    updateProviderDesc();
+  }
+});
