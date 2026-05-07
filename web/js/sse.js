@@ -108,7 +108,7 @@ const handlers = {
     state.lastUsage = null;
     hideUsage();
     setBusy(true);
-    setCurrentSessionStatus("session-streaming");
+    if (!state.replaying) setCurrentSessionStatus("session-streaming");
     finalizeThinking();
     finalizeLiveOutput();
     resetCompletedTools();
@@ -156,7 +156,7 @@ const handlers = {
     finalizeLiveOutput();
     renderUsage();
     setBusy(false);
-    setCurrentSessionStatus("session-unread");
+    if (!state.replaying) setCurrentSessionStatus("");
     // Defer reasoning compaction during replay batching — the exit hook
     // runs compactReasoning once on the whole stream.
     if (!state.replaying) compactReasoning(stream);
@@ -170,7 +170,7 @@ const handlers = {
     finalizeLiveOutput();
     stream.querySelectorAll(".agent-box.pending").forEach((el) => el.remove());
     setBusy(false);
-    setCurrentSessionStatus("");
+    if (!state.replaying) setCurrentSessionStatus("");
     if (!state.replaying) compactReasoning(stream);
     scheduleReplayFlush();
   },
@@ -182,7 +182,7 @@ const handlers = {
     finalizeLiveOutput();
     append(renderErrorCard(p?.message ?? "", p?.detail ?? p?.stack));
     setBusy(false);
-    setCurrentSessionStatus("");
+    if (!state.replaying) setCurrentSessionStatus("");
     if (!state.replaying) compactReasoning(stream);
     scheduleReplayFlush();
   },

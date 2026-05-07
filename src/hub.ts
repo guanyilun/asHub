@@ -526,7 +526,8 @@ function routeEvent(session: Session, e: BusEvent): void {
   if (e.name === "agent:queued-done") {
     flushSegment(session);
     session.isProcessing = false;
-    session.hasUnread = true;
+    // Only mark unread if no one is watching (no active SSE client).
+    session.hasUnread = session.sseClients.size === 0;
     pushFrame(session, "agent:processing-done", sseFrame({ ...meta, name: "agent:processing-done" }, {}));
     // Mirror submit()'s .then() handler for queued turns: persist messages
     // so restarted sessions restore their state, and auto-generate a title
@@ -971,7 +972,8 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
       }
       flushSegment(session);
       session.isProcessing = false;
-      session.hasUnread = true;
+      // Only mark unread if no one is watching (no active SSE client).
+      session.hasUnread = session.sseClients.size === 0;
       pushFrame(session, "agent:processing-done", sseFrame(meta("agent:processing-done"), {}));
       // Persist messages snapshot so restarted sessions restore their
       // conversation state (not just SSE replay frames).
