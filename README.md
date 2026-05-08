@@ -42,19 +42,6 @@ ashub --model gpt-4o
 | `--model NAME`  | settings default | Model override          |
 | `--provider NAME` | settings default | Provider override     |
 
-## API
-
-| Method | Path                   | Description              |
-|--------|------------------------|--------------------------|
-| GET    | `/`                    | Web UI                   |
-| POST   | `/sessions`            | Spawn session            |
-| GET    | `/<id>/`               | Session UI               |
-| GET    | `/<id>/events`         | SSE event stream         |
-| POST   | `/<id>/submit`         | Submit query             |
-| GET    | `/<id>/context`        | Context snapshot         |
-| POST   | `/<id>/context/rewind` | Drop trailing messages   |
-| DELETE | `/<id>/`               | Close session            |
-
 ## Status
 
 Beta. Localhost only by default.
