@@ -106,6 +106,13 @@ export class AshBridge extends EventEmitter implements Bridge {
       core.bus.emit("shell:cwd-change", { cwd: path.resolve(this.opts.cwd) });
     }
 
+    core.handlers.advise("system-prompt:build", (next: () => string) => {
+      const base = next();
+      const cwd = core.handlers.call("cwd");
+      if (typeof cwd !== "string" || !cwd) return base;
+      return `${base}\n\n# Working Directory\n\nCurrent working directory: ${cwd}`;
+    });
+
     // Cache initialMessages for injection into snapshot() — context:compact
     // has async microtask races with other conversation mutations during
     // init.  snapshot() injects them on first read instead.
