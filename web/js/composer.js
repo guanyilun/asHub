@@ -111,6 +111,8 @@ form?.addEventListener("submit", async (ev) => {
   }
 });
 
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+
 const killRange = (start, end) => {
   if (start === end) return;
   input.setSelectionRange(start, end);
@@ -122,7 +124,7 @@ const killRange = (start, end) => {
 };
 
 input?.addEventListener("keydown", (ev) => {
-  if (ev.altKey && !ev.metaKey && !ev.ctrlKey && (ev.code === "KeyB" || ev.code === "KeyF")) {
+  if (isMac && ev.altKey && !ev.metaKey && !ev.ctrlKey && (ev.code === "KeyB" || ev.code === "KeyF")) {
     ev.preventDefault();
     const forward = ev.code === "KeyF";
     const v = input.value;
@@ -144,7 +146,8 @@ input?.addEventListener("keydown", (ev) => {
   }
   if (ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
     const k = ev.key.toLowerCase();
-    if (k === "k" || k === "u" || k === "w") {
+    const isKill = k === "k" || (isMac && (k === "u" || k === "w"));
+    if (isKill) {
       ev.preventDefault();
       const v = input.value;
       const s = input.selectionStart, e = input.selectionEnd;
