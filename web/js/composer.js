@@ -122,6 +122,26 @@ const killRange = (start, end) => {
 };
 
 input?.addEventListener("keydown", (ev) => {
+  if (ev.altKey && !ev.metaKey && !ev.ctrlKey && (ev.code === "KeyB" || ev.code === "KeyF")) {
+    ev.preventDefault();
+    const forward = ev.code === "KeyF";
+    const v = input.value;
+    const dir = input.selectionDirection;
+    const active = dir === "backward" ? input.selectionStart : input.selectionEnd;
+    let i = ev.shiftKey ? active : (forward ? input.selectionEnd : input.selectionStart);
+    if (forward) {
+      while (i < v.length && /\s/.test(v[i])) i++;
+      while (i < v.length && /\S/.test(v[i])) i++;
+    } else {
+      while (i > 0 && /\s/.test(v[i - 1])) i--;
+      while (i > 0 && /\S/.test(v[i - 1])) i--;
+    }
+    if (!ev.shiftKey) { input.setSelectionRange(i, i); return; }
+    const anchor = dir === "backward" ? input.selectionEnd : input.selectionStart;
+    if (i < anchor) input.setSelectionRange(i, anchor, "backward");
+    else input.setSelectionRange(anchor, i, "forward");
+    return;
+  }
   if (ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey) {
     const k = ev.key.toLowerCase();
     if (k === "k" || k === "u" || k === "w") {
