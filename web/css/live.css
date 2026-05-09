@@ -856,6 +856,37 @@ body.exiting .app {
   50%      { opacity: 0.18; }
 }
 
+/* ── Right-panel awareness ──────────────────────────────────────── */
+/* When context / files panels slide in from the right (300px each,
+   fixed at right:48px), they cover the terminal bar's version label
+   and cancel button.  Padding on .terminal shifts the whole terminal
+   column left so those controls stay visible. */
+.live-wrap .terminal {
+  padding-right: 0;
+  transition: padding-right 0.35s var(--ease-in-out);
+}
+/* single panel: 300px */
+.app.ctx-open .live-wrap .terminal,
+.app.files-open .live-wrap .terminal {
+  padding-right: 300px;
+}
+/* both panels open: 600px */
+.app.ctx-open.files-open .live-wrap .terminal {
+  padding-right: 600px;
+}
+/* config and prompt overlays (no app-level class — use :has) */
+.app:has(.config-overlay.open) .live-wrap .terminal,
+.app:has(.prompt-overlay.open) .live-wrap .terminal {
+  padding-right: 300px;
+}
+/* combination: ctx/files + config/prompt (pick the wider) */
+.app.ctx-open:has(.config-overlay.open) .live-wrap .terminal,
+.app.ctx-open:has(.prompt-overlay.open) .live-wrap .terminal,
+.app.files-open:has(.config-overlay.open) .live-wrap .terminal,
+.app.files-open:has(.prompt-overlay.open) .live-wrap .terminal {
+  padding-right: 600px;
+}
+
 .live-wrap .terminal-bar {
   display: flex;
   align-items: center;
