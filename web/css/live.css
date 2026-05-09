@@ -857,34 +857,31 @@ body.exiting .app {
 }
 
 /* ── Right-panel awareness ──────────────────────────────────────── */
-/* When context / files panels slide in from the right (300px each,
-   fixed at right:48px), they cover the terminal bar's version label
-   and cancel button.  Padding on .terminal shifts the whole terminal
-   column left so those controls stay visible. */
-.live-wrap .terminal {
-  padding-right: 0;
-  transition: padding-right 0.35s var(--ease-in-out);
-}
-/* single panel: 300px */
-.app.ctx-open .live-wrap .terminal,
-.app.files-open .live-wrap .terminal {
-  padding-right: 300px;
-}
-/* both panels open: 600px */
-.app.ctx-open.files-open .live-wrap .terminal {
-  padding-right: 600px;
-}
-/* config and prompt overlays (no app-level class — use :has) */
-.app:has(.config-overlay.open) .live-wrap .terminal,
-.app:has(.prompt-overlay.open) .live-wrap .terminal {
-  padding-right: 300px;
-}
-/* combination: ctx/files + config/prompt (pick the wider) */
-.app.ctx-open:has(.config-overlay.open) .live-wrap .terminal,
-.app.ctx-open:has(.prompt-overlay.open) .live-wrap .terminal,
-.app.files-open:has(.config-overlay.open) .live-wrap .terminal,
-.app.files-open:has(.prompt-overlay.open) .live-wrap .terminal {
-  padding-right: 600px;
+/* When context / files / config / prompt panels slide in from the
+   right (300px each, fixed at right:48px), they cover the terminal
+   bar's version label and cancel button.  Padding on .terminal shifts
+   the whole terminal column left so those controls stay visible.
+   Only applies on wider screens; on mobile the panels are intentional
+   overlays and there isn't room to shift content sideways. */
+@media (min-width: 901px) {
+  .live-wrap .terminal {
+    padding-right: 0;
+    transition: padding-right 0.35s var(--ease-in-out);
+  }
+  /* single panel: 300px */
+  .app.ctx-open .live-wrap .terminal,
+  .app.files-open .live-wrap .terminal {
+    padding-right: 300px;
+  }
+  /* both ctx+files open: 600px */
+  .app.ctx-open.files-open .live-wrap .terminal {
+    padding-right: 600px;
+  }
+  /* config / prompt overlays (no app-level class — use :has) */
+  .app:has(.config-overlay.open) .live-wrap .terminal,
+  .app:has(.prompt-overlay.open) .live-wrap .terminal {
+    padding-right: 300px;
+  }
 }
 
 .live-wrap .terminal-bar {
