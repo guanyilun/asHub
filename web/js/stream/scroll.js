@@ -33,6 +33,16 @@ stream.addEventListener("scroll", () => {
 });
 pill?.addEventListener("click", scrollToBottom);
 
+/** Save/restore for infinite-scroll replay (prevents scroll-state corruption). */
+export const getScrollState = () => ({
+  stickToBottom,
+  pillHidden: pill?.hidden ?? true,
+});
+export const setScrollState = (s) => {
+  stickToBottom = s.stickToBottom ?? true;
+  if (pill) pill.hidden = s.pillHidden ?? true;
+};
+
 export const maybeScroll = () => {
   // During SSE replay batching, skip scroll to avoid hundreds of forced
   // layouts — the replay exit code will scroll once at the end.

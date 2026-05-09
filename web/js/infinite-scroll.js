@@ -8,14 +8,15 @@
  * visible viewport stable.
  */
 
-import { sessionId, state } from "./state.js";
+import { sessionId, state, getAgentInfoState, setAgentInfoState } from "./state.js";
 import { highlightWithin } from "./utils.js";
 import { compactReasoning } from "./stream/compact.js";
 import { getReplyState, setReplyState } from "./stream/reply.js";
 import { getThinkingState, setThinkingState } from "./stream/thinking.js";
 import { getToolGroupState, setToolGroupState } from "./stream/tool-group.js";
 import { getLiveOutputState, setLiveOutputState } from "./stream/live-output.js";
-import { getAgentInfoState, setAgentInfoState } from "./sse.js";
+import { getScrollState, setScrollState } from "./stream/scroll.js";
+import { cancelReplayFlush } from "./sse.js";
 
 // ── Module-level pagination state ────────────────────────────────────
 let firstContentId = null;   // frame id of the earliest rendered frame
@@ -78,6 +79,10 @@ const loadOlderFrames = async () => {
   loading = true;
   const gen = loadGeneration;
 
+  // Declared outside try so catch block can access it to restore the
+  // replaying flag on error (let inside try is block-scoped to try).
+  let wasReplaying = false;
+
   try {
     const url = `/${sessionId}/replay-before/${encodeURIComponent(firstContentId)}?turns=3`;
     const r = await fetch(url);
@@ -92,9 +97,20 @@ const loadOlderFrames = async () => {
     // Save current stream children so we can re-append them after processing
     // older frames into the (temporarily cleared) stream.
     const existingChildren = Array.from(stream.children);
-    for (const c of existingChildren) c.remove();
 
-    // Save critical state that handlers mutate
+    // Save scroll state BEFORE removing children — removing children triggers
+    // scroll events that corrupt stickToBottom and pill.hidden, and the
+    // browser clamps scrollTop to 0 on an empty container.
+    const savedScroll = getScrollState();
+    const savedScrollTop = stream.scrollTop;
+
+    // Suppress maybeScroll / sidebar-status changes during handler processing
+    // by reusing the replaying flag.  MUST be restored in catch/finally so a
+    // thrown error doesn't leave streaming permanently broken.
+		wasReplaying = state.replaying;
+    state.replaying = true;
+
+    for (const c of existingChildren) c.remove();
     const saved = {
       currentTurn: state.currentTurn,
       cwd: state.cwd,
@@ -120,14 +136,19 @@ const loadOlderFrames = async () => {
 
     // Save sidebar status — agent:processing-done calls setCurrentSessionStatus("")
     // which would clear the streaming/unread indicator during older-frame processing.
+    // Also save the current title text — older session:title frames would revert it
+    // to the initial 6-digit id.
     const sessionList = document.getElementById("sessions");
     let savedSessionStatus = "";
+    let savedSessionTitle = "";
     if (sessionList) {
       const cur = sessionList.querySelector("li.current");
       if (cur) {
         savedSessionStatus = Array.from(cur.classList)
           .filter(c => c === "session-streaming" || c === "session-unread")
           .join(" ");
+        const titleSpan = cur.querySelector(".session-title");
+        if (titleSpan) savedSessionTitle = titleSpan.textContent;
       }
     }
 
@@ -148,12 +169,24 @@ const loadOlderFrames = async () => {
       }
     }
 
+    // Cancel any replay-flush timer that handlers scheduled — the 12ms
+    // delayed exitReplayMode() would force-scroll to bottom otherwise.
+    // Always cancel: even when wasReplaying=true, the live replay timer
+    // was already cleared and replaced by our handlers' scheduleReplayFlush
+    // calls. Live SSE frames or hub:replay-done will restart/re-trigger
+    // exit normally after this load completes.
+    cancelReplayFlush();
+
     // Collect generated DOM
     const olderChildren = Array.from(stream.children);
 
     // Clear stream and restore original children
     for (const c of olderChildren) c.remove();
     for (const c of existingChildren) stream.appendChild(c);
+
+    // Capture scrollHeight before inserting older content (used for
+    // compensation after compactReasoning ran on the inserted content).
+    const oldScrollHeight = stream.scrollHeight;
 
     // Restore state
     state.currentTurn = saved.currentTurn;
@@ -162,10 +195,10 @@ const loadOlderFrames = async () => {
     state.lastUsage = saved.lastUsage;
     state.isProcessing = saved.isProcessing;
 
-    // Restore stream-module state
+    // Restore stream-module state (except tool-group — defer until after
+    // older children are inserted so the WeakMap includes their elements).
     setReplyState(savedReply);
     setThinkingState(savedThinking);
-    setToolGroupState(savedToolGroup);
     setLiveOutputState(savedLiveOutput);
 
     // Restore UI elements
@@ -185,19 +218,49 @@ const loadOlderFrames = async () => {
       }
     }
 
-    // Insert older children at the top, maintaining scroll position
-    const oldScrollHeight = stream.scrollHeight;
+    // Restore sidebar title — processing older frames replays the initial
+    // session:title frame which would revert to the 6-digit id.
+    if (sessionList && savedSessionTitle) {
+      const cur = sessionList.querySelector("li.current");
+      if (cur) {
+        const titleSpan = cur.querySelector(".session-title");
+        if (titleSpan) titleSpan.textContent = savedSessionTitle;
+      }
+    }
+
+    // Insert older children at the top, maintaining scroll position.
+    // Run compactReasoning first so height compensation accounts for
+    // any collapsed reasoning phases.
     const frag = document.createDocumentFragment();
     for (const c of olderChildren) frag.appendChild(c);
     stream.insertBefore(frag, stream.firstChild);
 
-    // Compensate scroll offset so visible content doesn't jump
-    const heightAdded = stream.scrollHeight - oldScrollHeight;
-    stream.scrollTop += heightAdded;
+    // Restore tool-group state now that older DOM is in place (WeakMap
+    // rebuild scans all .tool-group including newly-inserted elements).
+    setToolGroupState(savedToolGroup);
 
-    // Run deferred work on the newly inserted content
+    // Compact reasoning phases in the newly-inserted content BEFORE
+    // measuring height delta — otherwise the compensation is wrong.
     compactReasoning(stream);
     highlightWithin(stream);
+
+    // Restore scroll module state (pill.hidden, stickToBottom baseline)
+    // BEFORE the scrollTop assignment so the synchronous scroll event
+    // from that assignment can recompute stickToBottom from the real
+    // final position — we don't want to overwrite that with a stale value.
+    setScrollState(savedScroll);
+
+    // Restore replaying flag so the scroll event from scrollTop below
+    // is handled in the normal (non-replay) code path.
+    state.replaying = wasReplaying;
+
+    // Compensate scroll offset so visible content doesn't jump.
+    // Use the saved scrollTop (not the current one, which was clamped
+    // to 0 when children were removed) as the baseline offset.
+    const heightAdded = stream.scrollHeight - oldScrollHeight;
+    stream.scrollTop = savedScrollTop + heightAdded;
+    // ↑ This assignment triggers a synchronous 'scroll' event that
+    //   recomputes stickToBottom based on the real final position.
 
     // Update pagination cursor (only if the session hasn't changed).
     if (gen !== loadGeneration) return;
@@ -209,6 +272,9 @@ const loadOlderFrames = async () => {
   } catch (e) {
     console.error("infinite-scroll fetch failed", e);
     if (gen === loadGeneration) exhausted = true;
+    // Restore replaying flag even on error, otherwise streaming stays
+    // permanently broken (maybeScroll suppressed, sidebar dead).
+    state.replaying = wasReplaying;
   } finally {
     loading = false;
   }

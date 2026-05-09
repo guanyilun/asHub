@@ -1,5 +1,5 @@
 import { escape, stripAnsi, mdToHtml, highlightWithin, blockToText } from "./utils.js";
-import { sessionId, eventsUrl, state, setBusy } from "./state.js";
+import { sessionId, eventsUrl, state, setBusy, agentInfo } from "./state.js";
 import { t } from "./i18n.js";
 import { maybeScroll, forceScrollBottom } from "./stream/scroll.js";
 import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
@@ -23,6 +23,7 @@ import { createUserBox } from "./actions.js";
 import { updateSessionTitle, setCurrentSessionStatus } from "./sidebar.js";
 import { refreshFilesIfOpen } from "./files-panel.js";
 import { compactReasoning } from "./stream/compact.js";
+import { bindHandlers, setTruncationState } from "./infinite-scroll.js";
 
 const stream = document.getElementById("stream");
 const conn = document.getElementById("conn");
@@ -78,16 +79,12 @@ const exitReplayMode = () => {
   forceScrollBottom();
 };
 
-// Merge non-empty fields so a partial replay event doesn't blank known values.
-const agentInfo = { name: "", model: "" };
-
-/** Save/restore for infinite-scroll replay processing */
-export const getAgentInfoState = () => ({ name: agentInfo.name, model: agentInfo.model });
-export const setAgentInfoState = (s) => {
-  agentInfo.name = s?.name ?? "";
-  agentInfo.model = s?.model ?? "";
+/** Cancel any pending replay-flush timer (used by infinite-scroll). */
+export const cancelReplayFlush = () => {
+  if (replayFlushTimer) { clearTimeout(replayFlushTimer); replayFlushTimer = null; }
 };
 
+// Merge non-empty fields so a partial replay event doesn't blank known values.
 const handlers = {
   "agent:info": (p) => {
     if (p?.name === "web-renderer") return;
@@ -325,7 +322,16 @@ const handlers = {
   "hub:replay-done": () => {
     if (state.replaying) exitReplayMode();
   },
+
+  // Hub sentinel: replay was truncated because the session is large.
+  // The client will lazy-load older frames via infinite-scroll.
+  "hub:replay-truncated": (p) => {
+    setTruncationState(p?.beforeId ?? null, p?.total ?? 0);
+  },
 };
+
+// Wire infinite-scroll to the handler table so it can process older frames.
+bindHandlers(handlers);
 
 const connect = () => {
   const es = new EventSource(eventsUrl);
