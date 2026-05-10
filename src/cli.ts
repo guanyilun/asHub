@@ -7,7 +7,7 @@
  */
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { startHub, type HubOpts } from "./hub.js";
+import { startHub, shutdownHub, type HubOpts } from "./hub.js";
 import { AshBridge } from "./bridges/ash.js";
 import { AcpBridge } from "./bridges/acp.js";
 import type { BridgeFactory } from "./bridges/types.js";
@@ -105,5 +105,12 @@ const opts: HubOpts = {
 
 startHub(opts);
 
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+let _shuttingDown = false;
+async function gracefulExit(): Promise<void> {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  try { await shutdownHub(); } catch {}
+  process.exit(0);
+}
+process.on("SIGINT", () => { void gracefulExit(); });
+process.on("SIGTERM", () => { void gracefulExit(); });
