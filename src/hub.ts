@@ -143,6 +143,13 @@ function persistReplayFrame(sessionId: string, frame: string): void {
   }
 }
 
+export async function shutdownHub(): Promise<void> {
+  for (const id of Array.from(_writeBufs.keys())) {
+    _flushBuf(id);
+  }
+  await Promise.allSettled(Array.from(_writeLocks.values()));
+}
+
 function persistReplayFile(sessionId: string, frames: string[]): Promise<void> {
   const buf = _writeBufs.get(sessionId);
   if (buf) {
@@ -571,6 +578,7 @@ function routeEvent(session: Session, e: BusEvent): void {
     // Only mark unread if no one is watching (no active SSE client).
     session.hasUnread = session.sseClients.size === 0;
     pushFrame(session, "agent:processing-done", sseFrame({ ...meta, name: "agent:processing-done" }, {}));
+    _flushBuf(session.id);
     // Mirror submit()'s .then() handler for queued turns: persist messages
     // so restarted sessions restore their state, and auto-generate a title
     // after the first completed turn.
@@ -1044,6 +1052,7 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
       // Only mark unread if no one is watching (no active SSE client).
       session.hasUnread = session.sseClients.size === 0;
       pushFrame(session, "agent:processing-done", sseFrame(meta("agent:processing-done"), {}));
+      _flushBuf(session.id);
       // Persist messages snapshot so restarted sessions restore their
       // conversation state (not just SSE replay frames).
       saveSessionMessages(session).catch(() => {});

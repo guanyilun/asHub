@@ -146,6 +146,8 @@ function fallbackToGitHub() {
 }
 
 let mainWindow = null;
+let shutdownHub = null;
+let _shuttingDown = false;
 
 function resolveWebRoot() {
   if (isDev) {
@@ -297,7 +299,9 @@ async function startServer() {
 
   let startHub, AshBridge;
   try {
-    ({ startHub } = await import(pathToFileURL(path.join(distRoot, "hub.js")).href));
+    const hubMod = await import(pathToFileURL(path.join(distRoot, "hub.js")).href);
+    startHub = hubMod.startHub;
+    shutdownHub = hubMod.shutdownHub;
     ({ AshBridge } = await import(pathToFileURL(path.join(distRoot, "bridges", "ash.js")).href));
   } catch (err) {
     console.error("[electron] failed to import dist modules:", err);
@@ -383,7 +387,14 @@ if (!gotTheLock) {
     app.quit();
   });
 
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
     if (mainWindow) mainWindow.removeAllListeners("closed");
+    if (_shuttingDown || !shutdownHub) return;
+    _shuttingDown = true;
+    event.preventDefault();
+    Promise.resolve()
+      .then(() => shutdownHub())
+      .catch((err) => console.error("[electron] shutdownHub failed:", err))
+      .finally(() => app.exit(0));
   });
 }
