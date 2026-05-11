@@ -2,6 +2,9 @@ import { lang, setLang } from "./i18n.js";
 
 const LS_THEME = "ash-theme";
 const LS_SIDEBAR = "ash.sidebar-collapsed";
+const LS_SIDEBAR_W = "ash.sidebar-width";
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 480;
 
 const app = document.querySelector(".app");
 const themeToggle = document.getElementById("theme-toggle");
@@ -45,6 +48,45 @@ try {
 
 sidebarToggle?.addEventListener("click", () => {
   setSidebarCollapsed(!app.classList.contains("sidebar-collapsed"));
+});
+
+const sidebarResize = document.getElementById("sidebar-resize");
+
+const setSidebarWidth = (w) => {
+  const clamped = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, w));
+  app.style.setProperty("--sidebar-w", `${clamped}px`);
+  return clamped;
+};
+
+try {
+  const stored = parseInt(localStorage.getItem(LS_SIDEBAR_W) ?? "", 10);
+  if (Number.isFinite(stored)) setSidebarWidth(stored);
+} catch {}
+
+sidebarResize?.addEventListener("mousedown", (ev) => {
+  if (app.classList.contains("sidebar-collapsed")) return;
+  ev.preventDefault();
+  app.classList.add("sidebar-resizing");
+  const onMove = (e) => {
+    setSidebarWidth(e.clientX);
+  };
+  const onUp = () => {
+    app.classList.remove("sidebar-resizing");
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    const cur = getComputedStyle(app).getPropertyValue("--sidebar-w").trim();
+    const px = parseInt(cur, 10);
+    if (Number.isFinite(px)) {
+      try { localStorage.setItem(LS_SIDEBAR_W, String(px)); } catch {}
+    }
+  };
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+});
+
+sidebarResize?.addEventListener("dblclick", () => {
+  app.style.removeProperty("--sidebar-w");
+  try { localStorage.removeItem(LS_SIDEBAR_W); } catch {}
 });
 
 langToggle?.addEventListener("click", () => {

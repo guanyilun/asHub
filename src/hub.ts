@@ -720,6 +720,7 @@ function listSessions(res: http.ServerResponse, sessions: Map<string, Session>):
       model: s.model,
       cwd: s.cwd,
       startedAt: s.startedAt,
+      lastModified: s.lastModified,
       isProcessing: s.isProcessing,
       hasUnread: s.hasUnread,
     }));

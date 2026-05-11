@@ -23,6 +23,39 @@ const shortenCwd = (cwd) => {
   return (path.startsWith("~") ? "~/…/" : "…/") + parts.slice(-2).join("/");
 };
 
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+const bucketKey = (ts) => {
+  if (!ts) return "older";
+  const today = startOfDay(new Date());
+  const day = startOfDay(new Date(ts));
+  const diff = Math.floor((today - day) / 86400000);
+  if (diff <= 0) return "today";
+  if (diff === 1) return "yesterday";
+  if (diff < 7) return "thisweek";
+  if (diff < 30) return "thismonth";
+  return "older";
+};
+
+const BUCKET_ORDER = ["today", "yesterday", "thisweek", "thismonth", "older"];
+
+const relativeTime = (ts) => {
+  if (!ts) return "";
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 60) return "now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d`;
+  const wk = Math.floor(day / 7);
+  if (wk < 5) return `${wk}w`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo`;
+  return `${Math.floor(day / 365)}y`;
+};
+
 /**
  * Update the status indicator on the current session's tab.
  * Called from sse.js on processing-start / processing-done.
@@ -91,66 +124,80 @@ const renderSessions = async () => {
       if (m) state.homeDir = m[1];
     }
     sessionList.innerHTML = "";
+    const buckets = new Map();
     for (const s of list) {
-      const li = document.createElement("li");
-      const isCurrent = s.instanceId === sessionId;
-      if (isCurrent) li.className = "current";
-      // Apply status indicator classes from server data
-      if (s.isProcessing) li.classList.add("session-streaming");
-      else if (s.hasUnread) li.classList.add("session-unread");
-
-      const a = document.createElement("a");
-      a.href = `/${s.instanceId}/`;
-      a.addEventListener("click", (ev) => {
-        if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
-        ev.preventDefault();
-        if (s.instanceId === sessionId) return;
-        switchTo(s.instanceId);
-      });
-      const title = escape(s.title || s.instanceId);
-      const modelText = s.model ? ` <span class="session-model">${escape(s.model)}</span>` : "";
-      const cwdText = s.cwd ? ` <span class="session-cwd" title="${escape(s.cwd)}">${escape(shortenCwd(s.cwd))}</span>` : "";
-      a.innerHTML = `<span class="session-title">${title}</span>${modelText}${cwdText}`;
-      li.appendChild(a);
-
-      // Status indicator dot
-      const statusDot = document.createElement("span");
-      statusDot.className = "session-status";
-      li.appendChild(statusDot);
-
-      const editBtn = document.createElement("button");
-      editBtn.className = "session-edit";
-      editBtn.title = t("edit.title");
-      editBtn.textContent = "✎";
-      editBtn.addEventListener("click", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        startTitleEdit(li, s.instanceId, s.title || s.instanceId);
-      });
-      li.appendChild(editBtn);
-
-      const close = document.createElement("button");
-      close.className = "session-close";
-      close.title = t("close.session");
-      close.textContent = "×";
-      close.addEventListener("click", async (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (!confirm(t("close.session.confirm", { title: escape(s.title || s.instanceId) }))) return;
-        try {
-          await fetch(`/${s.instanceId}/`, { method: "DELETE" });
-        } catch {}
-        if (s.instanceId === sessionId) {
-          window.location.href = "/";
-        } else {
-          renderSessions();
-        }
-      });
-      li.appendChild(close);
-
-      sessionList.appendChild(li);
+      const k = bucketKey(s.lastModified ?? s.startedAt);
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(s);
+    }
+    for (const k of BUCKET_ORDER) {
+      const items = buckets.get(k);
+      if (!items?.length) continue;
+      const head = document.createElement("li");
+      head.className = "session-group-head";
+      head.textContent = t(`bucket.${k}`);
+      sessionList.appendChild(head);
+      for (const s of items) renderSessionItem(s);
     }
   } catch {}
+};
+
+const renderSessionItem = (s) => {
+  const li = document.createElement("li");
+  const isCurrent = s.instanceId === sessionId;
+  if (isCurrent) li.className = "current";
+  if (s.isProcessing) li.classList.add("session-streaming");
+  else if (s.hasUnread) li.classList.add("session-unread");
+
+  const a = document.createElement("a");
+  a.href = `/${s.instanceId}/`;
+  a.addEventListener("click", (ev) => {
+    if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    ev.preventDefault();
+    if (s.instanceId === sessionId) return;
+    switchTo(s.instanceId);
+  });
+  const title = escape(s.title || t("untitled"));
+  const cwdText = s.cwd ? `<span class="session-cwd" title="${escape(s.cwd)}">${escape(shortenCwd(s.cwd))}</span>` : "";
+  const timeText = s.startedAt ? `<span class="session-time" title="${escape(new Date(s.startedAt).toLocaleString())}">${escape(relativeTime(s.startedAt))}</span>` : "";
+  a.innerHTML = `<span class="session-title" title="${title}">${title}</span><span class="session-meta">${cwdText}${timeText}</span>`;
+  li.appendChild(a);
+
+  const statusDot = document.createElement("span");
+  statusDot.className = "session-status";
+  li.appendChild(statusDot);
+
+  const editBtn = document.createElement("button");
+  editBtn.className = "session-edit";
+  editBtn.title = t("edit.title");
+  editBtn.textContent = "✎";
+  editBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    startTitleEdit(li, s.instanceId, s.title || "");
+  });
+  li.appendChild(editBtn);
+
+  const close = document.createElement("button");
+  close.className = "session-close";
+  close.title = t("close.session");
+  close.textContent = "×";
+  close.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!confirm(t("close.session.confirm", { title: escape(s.title || t("untitled")) }))) return;
+    try {
+      await fetch(`/${s.instanceId}/`, { method: "DELETE" });
+    } catch {}
+    if (s.instanceId === sessionId) {
+      window.location.href = "/";
+    } else {
+      renderSessions();
+    }
+  });
+  li.appendChild(close);
+
+  sessionList.appendChild(li);
 };
 
 renderSessions();
