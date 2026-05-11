@@ -376,15 +376,6 @@ body.exiting .app {
   flex-shrink: 0;
 }
 
-.toolbar-btn::after {
-  content: '';
-  position: absolute;
-  inset: 4px;
-  border-radius: 4px;
-  background: transparent;
-  transition: background 0.2s var(--ease-out-expo);
-}
-
 .toolbar-btn:hover {
   color: var(--accent);
   background: var(--accent-glow);
@@ -631,7 +622,7 @@ body.exiting .app {
   font-family: 'Geist', 'Inter', -apple-system, sans-serif;
   font-weight: 380;
   color: var(--text-mid);
-  font-feature-settings: "tnum" 1;
+  font-feature-settings: "calt" 1, "liga" 1, "kern" 1, "tnum" 1;
   font-variant-numeric: tabular-nums;
 }
 
