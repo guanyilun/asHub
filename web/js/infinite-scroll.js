@@ -141,6 +141,11 @@ const loadOlderFrames = async () => {
     const sessionList = document.getElementById("sessions");
     let savedSessionStatus = "";
     let savedSessionTitle = "";
+    // Also save the page-level session topic — session:title handler calls
+    // setSessionTopic() which updates #session-topic, but we only restore the
+    // sidebar list item below.
+    const sessionTopic = document.getElementById("session-topic");
+    const savedSessionTopicText = sessionTopic ? sessionTopic.textContent : "";
     if (sessionList) {
       const cur = sessionList.querySelector("li.current");
       if (cur) {
@@ -227,6 +232,10 @@ const loadOlderFrames = async () => {
         if (titleSpan) titleSpan.textContent = savedSessionTitle;
       }
     }
+
+    // Restore page-level session topic — the session:title handler also calls
+    // setSessionTopic() which updates #session-topic (not just the sidebar).
+    if (sessionTopic) sessionTopic.textContent = savedSessionTopicText;
 
     // Insert older children at the top, maintaining scroll position.
     // Run compactReasoning first so height compensation accounts for
