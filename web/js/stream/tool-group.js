@@ -99,10 +99,6 @@ const closeToolGroup = () => {
   }
 };
 
-export const resetToolGroupState = () => {
-  currentToolGroup = null;
-};
-
 export const append = (node) => {
   closeToolGroup();
   hideEmptyState();

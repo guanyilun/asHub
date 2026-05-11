@@ -123,9 +123,3 @@ export const setLiveOutputState = (s) => {
   completedTools.clear();
   if (s.completedTools) for (const id of s.completedTools) completedTools.add(id);
 };
-
-export const resetLiveOutputState = () => {
-  lastToolRow = null;
-  liveToolOutput = null;
-  completedTools.clear();
-};

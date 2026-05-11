@@ -73,13 +73,6 @@ export const closeReply = () => {
   currentReplyText = "";
 };
 
-export const resetReplyState = () => {
-  currentReply = null;
-  currentReplyText = "";
-  pendingChunkRender = false;
-  liveSegment = false;
-};
-
 export const cancelReply = () => {
   if (currentReply) {
     currentReply.classList.add("cancelled");
