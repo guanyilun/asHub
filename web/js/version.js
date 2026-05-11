@@ -7,7 +7,10 @@ let versionState = "checking"; // "checking" | "current" | "update" | "error"
 let versionCurrent = "";
 
 // Set initial title (JS manages this dynamically, so no data-i18n-title in HTML)
-if (versionLabel) versionLabel.title = t("checking.updates");
+if (versionLabel) {
+  versionLabel.title = t("checking.updates");
+  versionLabel.classList.add("visible", "checking");
+}
 
 const refreshVersionLabel = () => {
   if (!versionLabel) return;
@@ -39,6 +42,7 @@ document.addEventListener("langchange", refreshVersionLabel);
     const data = await resp.json();
     const current = data.version || "0.0.0";
     if (!versionLabel.classList.contains("has-update")) {
+      versionLabel.classList.remove("checking");
       versionLabel.textContent = `v${current}`;
       versionLabel.classList.add("visible", "up-to-date");
       versionLabel.title = `asHub v${current}`;
@@ -47,6 +51,7 @@ document.addEventListener("langchange", refreshVersionLabel);
     }
   } catch {
     if (!versionLabel.classList.contains("has-update")) {
+      versionLabel.classList.remove("checking");
       versionLabel.textContent = "";
       versionLabel.title = "";
       versionState = "error";
@@ -59,6 +64,7 @@ document.addEventListener("langchange", refreshVersionLabel);
       if (!versionLabel) return;
       versionState = "update";
       versionCurrent = newVersion;
+      versionLabel.classList.remove("checking");
       versionLabel.textContent = t("version.available", { ver: newVersion });
       versionLabel.classList.add("visible");
       versionLabel.classList.remove("up-to-date");

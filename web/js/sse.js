@@ -31,9 +31,22 @@ const conn = document.getElementById("conn");
 const dot = document.querySelector(".live-dot");
 const instanceLabel = document.getElementById("instance");
 const pageLoader = document.getElementById("page-loader");
+const loaderBar = document.getElementById("page-loader-bar");
+const loaderBarFill = document.getElementById("page-loader-bar-fill");
+
+// Progress bar: animate to 90% over 4s, leave 100% for actual connection
+if (loaderBar) loaderBar.classList.add("visible");
+if (loaderBarFill) {
+  setTimeout(() => { loaderBarFill.style.width = "30%"; }, 100);
+  setTimeout(() => { loaderBarFill.style.width = "65%"; }, 1200);
+  setTimeout(() => { loaderBarFill.style.width = "90%"; }, 3000);
+}
 
 const hidePageLoader = () => {
-  if (pageLoader) pageLoader.classList.add("hidden");
+  if (loaderBarFill) loaderBarFill.style.width = "100%";
+  setTimeout(() => {
+    if (pageLoader) pageLoader.classList.add("hidden");
+  }, 200);
 };
 
 // Safety fallback: hide loader after 8s if SSE never connects

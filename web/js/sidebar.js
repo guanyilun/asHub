@@ -195,6 +195,7 @@ const renderSessionItem = (s) => {
   li.appendChild(close);
 
   sessionList.appendChild(li);
+  return li;
 };
 
 const renderSessions = async () => {
@@ -222,7 +223,12 @@ const renderSessions = async () => {
       head.className = "session-group-head";
       head.textContent = t(`bucket.${k}`);
       sessionList.appendChild(head);
-      for (const s of items) renderSessionItem(s);
+      let staggerIdx = 0;
+      for (const s of items) {
+        const li = renderSessionItem(s);
+        li.style.animationDelay = `${staggerIdx * 0.04}s`;
+        staggerIdx++;
+      }
     }
   } catch {}
 };
