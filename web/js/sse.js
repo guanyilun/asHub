@@ -1,4 +1,4 @@
-import { escape, stripAnsi, mdToHtml, highlightWithin, blockToText } from "./utils.js";
+import { escape, stripAnsi, mdToHtml, highlightWithin, renderMathIn, blockToText } from "./utils.js";
 import { sessionId, eventsUrl, state, setBusy, agentInfo } from "./state.js";
 import { t } from "./i18n.js";
 import { maybeScroll, forceScrollBottom } from "./stream/scroll.js";
@@ -91,6 +91,7 @@ const exitReplayMode = () => {
   sweepOrphanThinking(stream);
   compactReasoning(stream);
   highlightWithin(stream);  // cheap no-op if no code blocks exist
+  renderMathIn(stream);     // cheap no-op if no math placeholders exist
   forceScrollBottom();
 };
 
@@ -175,6 +176,7 @@ const handlers = {
     block.dataset.turn = String(state.currentTurn);
     block.innerHTML = mdToHtml(stripAnsi(p.text));
     append(block);
+    renderMathIn(block);
     // Defer highlighting during replay batching.
     if (!state.replaying) highlightWithin(block);
   },
