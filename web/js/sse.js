@@ -10,6 +10,7 @@ import {
 import {
   showThinking, hideThinking, hasThinkingDots,
   appendThinkingChunk, finalizeThinking, hasThinkingBlock,
+  sweepOrphanThinking,
 } from "./stream/thinking.js";
 import {
   appendReplyChunk, fillFinalReply, closeReply, cancelReply, hasReply,
@@ -74,6 +75,7 @@ const exitReplayMode = () => {
   // Content is fully rendered — hide the page loader.
   hidePageLoader();
   // Run all deferred heavy work in one pass.
+  sweepOrphanThinking(stream);
   compactReasoning(stream);
   highlightWithin(stream);  // cheap no-op if no code blocks exist
   forceScrollBottom();
@@ -131,6 +133,8 @@ const handlers = {
     hideUsage();
     setBusy(true);
     if (!state.replaying) setCurrentSessionStatus("session-streaming");
+    hideThinking();
+    sweepOrphanThinking(stream);
     finalizeThinking();
     finalizeLiveOutput();
     resetCompletedTools();

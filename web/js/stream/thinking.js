@@ -35,6 +35,19 @@ export const hideThinking = () => {
   thinkingEl = null;
 };
 
+/**
+ * Remove any `.thinking` dots in the stream that aren't the live `thinkingEl`.
+ * Orphans can be left by infinite-scroll's older-frame replay or by a server
+ * stream that ended mid-turn — both routes can leave DOM nodes that no module
+ * reference points to, so hideThinking() can no longer clean them.
+ */
+export const sweepOrphanThinking = (stream) => {
+  if (!stream) return;
+  for (const el of stream.querySelectorAll(".thinking")) {
+    if (el !== thinkingEl) el.remove();
+  }
+};
+
 // max-height needs an explicit pixel value to transition from/to 0.
 const setThinkingCollapsed = (block, collapsed) => {
   const body = block.querySelector(".thinking-block-body");

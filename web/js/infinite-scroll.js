@@ -12,7 +12,7 @@ import { sessionId, state, getAgentInfoState, setAgentInfoState } from "./state.
 import { highlightWithin } from "./utils.js";
 import { compactReasoning } from "./stream/compact.js";
 import { getReplyState, setReplyState } from "./stream/reply.js";
-import { getThinkingState, setThinkingState } from "./stream/thinking.js";
+import { getThinkingState, setThinkingState, sweepOrphanThinking } from "./stream/thinking.js";
 import { getToolGroupState, setToolGroupState } from "./stream/tool-group.js";
 import { getLiveOutputState, setLiveOutputState } from "./stream/live-output.js";
 import { getScrollState, setScrollState } from "./stream/scroll.js";
@@ -241,6 +241,7 @@ const loadOlderFrames = async () => {
 
     // Compact reasoning phases in the newly-inserted content BEFORE
     // measuring height delta — otherwise the compensation is wrong.
+    sweepOrphanThinking(stream);
     compactReasoning(stream);
     highlightWithin(stream);
 

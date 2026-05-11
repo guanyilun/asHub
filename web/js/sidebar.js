@@ -4,10 +4,30 @@ import { attachAutocomplete } from "./autocomplete.js";
 import { t } from "./i18n.js";
 
 const sessionList = document.getElementById("sessions");
+const sessionTopic = document.getElementById("session-topic");
+const sessionCwdMeta = document.getElementById("session-cwd-meta");
 const newForm = document.getElementById("new-session-form");
 const newCwd = document.getElementById("new-session-cwd");
 const newErr = document.getElementById("new-session-err");
 const newBtn = document.getElementById("new-session");
+
+export const setSessionTopic = (title) => {
+  if (!sessionTopic) return;
+  sessionTopic.textContent = title ?? "";
+  sessionTopic.dataset.empty = t("untitled");
+};
+
+const homeRelativeCwd = (cwd) => {
+  if (!cwd) return "";
+  if (state.homeDir && cwd.startsWith(state.homeDir)) return "~" + cwd.slice(state.homeDir.length);
+  return cwd;
+};
+
+export const setSessionCwd = (cwd) => {
+  if (!sessionCwdMeta) return;
+  sessionCwdMeta.textContent = homeRelativeCwd(cwd);
+  if (cwd) sessionCwdMeta.title = cwd;
+};
 
 const LS_LAST_CWD = "ash.last-cwd";
 
@@ -20,6 +40,39 @@ const shortenCwd = (cwd) => {
   const parts = path.split("/").filter(Boolean);
   if (parts.length <= 2) return path;
   return (path.startsWith("~") ? "~/…/" : "…/") + parts.slice(-2).join("/");
+};
+
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+const bucketKey = (ts) => {
+  if (!ts) return "older";
+  const today = startOfDay(new Date());
+  const day = startOfDay(new Date(ts));
+  const diff = Math.floor((today - day) / 86400000);
+  if (diff <= 0) return "today";
+  if (diff === 1) return "yesterday";
+  if (diff < 7) return "thisweek";
+  if (diff < 30) return "thismonth";
+  return "older";
+};
+
+const BUCKET_ORDER = ["today", "yesterday", "thisweek", "thismonth", "older"];
+
+const relativeTime = (ts) => {
+  if (!ts) return "";
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 60) return "now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d`;
+  const wk = Math.floor(day / 7);
+  if (wk < 5) return `${wk}w`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo`;
+  return `${Math.floor(day / 365)}y`;
 };
 
 /**
@@ -78,6 +131,72 @@ const startTitleEdit = (li, instanceId, currentTitle) => {
   });
 };
 
+const renderSessionItem = (s) => {
+  const li = document.createElement("li");
+  const isCurrent = s.instanceId === sessionId;
+  const hasTitle = s.title && s.title !== s.instanceId;
+  if (isCurrent) {
+    li.className = "current";
+    setSessionTopic(hasTitle ? s.title : "");
+    setSessionCwd(s.cwd);
+  }
+  if (s.isProcessing) li.classList.add("session-streaming");
+  else if (s.hasUnread) li.classList.add("session-unread");
+
+  const a = document.createElement("a");
+  a.href = `/${s.instanceId}/`;
+  if (isCurrent) {
+    a.addEventListener("click", (ev) => ev.preventDefault());
+  } else {
+    a.addEventListener("click", (ev) => {
+      // Skip exit transition for new-tab/window opens
+      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+      document.body.classList.add("exiting");
+    });
+  }
+  const title = escape(hasTitle ? s.title : t("untitled"));
+  const cwdText = s.cwd ? `<span class="session-cwd" title="${escape(s.cwd)}">${escape(shortenCwd(s.cwd))}</span>` : "";
+  const timeText = s.startedAt ? `<span class="session-time" title="${escape(new Date(s.startedAt).toLocaleString())}">${escape(relativeTime(s.startedAt))}</span>` : "";
+  a.innerHTML = `<span class="session-title" title="${title}">${title}</span><span class="session-meta">${cwdText}${timeText}</span>`;
+  li.appendChild(a);
+
+  const statusDot = document.createElement("span");
+  statusDot.className = "session-status";
+  li.appendChild(statusDot);
+
+  const editBtn = document.createElement("button");
+  editBtn.className = "session-edit";
+  editBtn.title = t("edit.title");
+  editBtn.textContent = "✎";
+  editBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    startTitleEdit(li, s.instanceId, s.title || "");
+  });
+  li.appendChild(editBtn);
+
+  const close = document.createElement("button");
+  close.className = "session-close";
+  close.title = t("close.session");
+  close.textContent = "×";
+  close.addEventListener("click", async (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!confirm(t("close.session.confirm", { title: escape(s.title || t("untitled")) }))) return;
+    try {
+      await fetch(`/${s.instanceId}/`, { method: "DELETE" });
+    } catch {}
+    if (s.instanceId === sessionId) {
+      window.location.href = "/";
+    } else {
+      renderSessions();
+    }
+  });
+  li.appendChild(close);
+
+  sessionList.appendChild(li);
+};
+
 const renderSessions = async () => {
   try {
     const res = await fetch("/sessions");
@@ -90,67 +209,20 @@ const renderSessions = async () => {
       if (m) state.homeDir = m[1];
     }
     sessionList.innerHTML = "";
+    const buckets = new Map();
     for (const s of list) {
-      const li = document.createElement("li");
-      const isCurrent = s.instanceId === sessionId;
-      if (isCurrent) li.className = "current";
-      // Apply status indicator classes from server data
-      if (s.isProcessing) li.classList.add("session-streaming");
-      else if (s.hasUnread) li.classList.add("session-unread");
-
-      const a = document.createElement("a");
-      a.href = `/${s.instanceId}/`;
-      if (isCurrent) {
-        a.addEventListener("click", (ev) => ev.preventDefault());
-      } else {
-        a.addEventListener("click", (ev) => {
-          // Skip exit transition for new-tab/window opens
-          if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
-          document.body.classList.add("exiting");
-        });
-      }
-      const title = escape(s.title || s.instanceId);
-      const modelText = s.model ? ` <span class="session-model">${escape(s.model)}</span>` : "";
-      const cwdText = s.cwd ? ` <span class="session-cwd" title="${escape(s.cwd)}">${escape(shortenCwd(s.cwd))}</span>` : "";
-      a.innerHTML = `<span class="session-title">${title}</span>${modelText}${cwdText}`;
-      li.appendChild(a);
-
-      // Status indicator dot
-      const statusDot = document.createElement("span");
-      statusDot.className = "session-status";
-      li.appendChild(statusDot);
-
-      const editBtn = document.createElement("button");
-      editBtn.className = "session-edit";
-      editBtn.title = t("edit.title");
-      editBtn.textContent = "✎";
-      editBtn.addEventListener("click", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        startTitleEdit(li, s.instanceId, s.title || s.instanceId);
-      });
-      li.appendChild(editBtn);
-
-      const close = document.createElement("button");
-      close.className = "session-close";
-      close.title = t("close.session");
-      close.textContent = "×";
-      close.addEventListener("click", async (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (!confirm(t("close.session.confirm", { title: escape(s.title || s.instanceId) }))) return;
-        try {
-          await fetch(`/${s.instanceId}/`, { method: "DELETE" });
-        } catch {}
-        if (s.instanceId === sessionId) {
-          window.location.href = "/";
-        } else {
-          renderSessions();
-        }
-      });
-      li.appendChild(close);
-
-      sessionList.appendChild(li);
+      const k = bucketKey(s.lastModified ?? s.startedAt);
+      if (!buckets.has(k)) buckets.set(k, []);
+      buckets.get(k).push(s);
+    }
+    for (const k of BUCKET_ORDER) {
+      const items = buckets.get(k);
+      if (!items?.length) continue;
+      const head = document.createElement("li");
+      head.className = "session-group-head";
+      head.textContent = t(`bucket.${k}`);
+      sessionList.appendChild(head);
+      for (const s of items) renderSessionItem(s);
     }
   } catch {}
 };
@@ -172,6 +244,7 @@ document.addEventListener("langchange", () => {
 // Inline update — a full re-render would clobber an in-progress title edit.
 export const updateSessionTitle = (sid, title) => {
   if (!title) return;
+  if (sid === sessionId) setSessionTopic(title);
   const items = sessionList.querySelectorAll("li");
   for (const li of items) {
     const a = li.querySelector("a");

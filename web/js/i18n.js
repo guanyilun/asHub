@@ -66,6 +66,12 @@ const translations = {
     "edit.title": "edit title",
     "close.session": "close session",
     "close.session.confirm": "Close session {title}?",
+    "bucket.today": "Today",
+    "bucket.yesterday": "Yesterday",
+    "bucket.thisweek": "Earlier this week",
+    "bucket.thismonth": "Earlier this month",
+    "bucket.older": "Older",
+    "untitled": "Untitled",
 
     // ── Actions / user box ─────────────────────────────────────────
     "you": "you",
@@ -216,6 +222,12 @@ const translations = {
     "edit.title": "编辑标题",
     "close.session": "关闭会话",
     "close.session.confirm": "关闭会话 {title}？",
+    "bucket.today": "今天",
+    "bucket.yesterday": "昨天",
+    "bucket.thisweek": "本周",
+    "bucket.thismonth": "本月",
+    "bucket.older": "更早",
+    "untitled": "未命名",
 
     // ── Actions / user box ─────────────────────────────────────────
     "you": "你",
