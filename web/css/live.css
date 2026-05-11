@@ -310,6 +310,7 @@ body.exiting .app {
 /* Explicit grid-column assignment */
 .sidebar { grid-column: 1; }
 .main { grid-column: 2; }
+session-view { display: contents; }
 .app.sidebar-collapsed .session-list,
 .app.sidebar-collapsed .sidebar-title { display: none; }
 .app.sidebar-collapsed .sidebar-head {

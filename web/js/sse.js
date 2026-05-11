@@ -37,13 +37,6 @@ const hidePageLoader = () => {
   if (pageLoader) pageLoader.classList.add("hidden");
 };
 
-// Safety fallback: hide loader after 8s if SSE never connects
-setTimeout(() => {
-  if (pageLoader && !pageLoader.classList.contains("hidden")) {
-    hidePageLoader();
-  }
-}, 8000);
-
 const connState = signal(/** @type {"connecting"|"connected"|"reconnecting"|"nosession"} */ ("connecting"));
 
 effect(() => {
@@ -375,10 +368,18 @@ const connect = () => {
   };
 };
 
-if (sessionId) {
-  connect();
-} else {
-  hidePageLoader();
-  connState.value = "nosession";
-  dot.classList.add("stale");
-}
+export const bootSession = () => {
+  setTimeout(() => {
+    if (pageLoader && !pageLoader.classList.contains("hidden")) {
+      hidePageLoader();
+    }
+  }, 8000);
+
+  if (sessionId) {
+    connect();
+  } else {
+    hidePageLoader();
+    connState.value = "nosession";
+    dot.classList.add("stale");
+  }
+};
