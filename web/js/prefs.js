@@ -90,5 +90,5 @@ sidebarResize?.addEventListener("dblclick", () => {
 });
 
 langToggle?.addEventListener("click", () => {
-  setLang(lang() === "zh" ? "en" : "zh");
+  setLang(lang.value === "zh" ? "en" : "zh");
 });

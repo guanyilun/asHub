@@ -12,6 +12,7 @@
     "start": "tsx src/cli.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "typecheck:web": "tsc --noEmit -p web/jsconfig.json",
     "electron:dev": "npm run build && electron .",
     "electron:pack": "npm run build && electron-builder --dir",
     "electron:dist:mac": "npm run build && electron-builder --mac",
