@@ -567,7 +567,7 @@ nav.scrolled {
   overflow-y: hidden;
   padding: 0.2em 0;
 }
-.math-tex .katex { font-size: 1.02em; }
+.math-tex .katex { font-size: 1.15em; }
 .math-error {
   color: var(--danger, #d04a4a);
   font-family: var(--font-mono, monospace);
