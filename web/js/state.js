@@ -1,21 +1,26 @@
+// @ts-check
+import { signal } from "../vendor/signals-core.js";
+
 export const sessionId = (location.pathname.match(/^\/([0-9a-f]{4,32})\/?$/) ?? [])[1] ?? "";
 export const eventsUrl = `/${sessionId}/events?tail=50`;
 export const submitUrl = `/${sessionId}/submit`;
+
+export const homeDir = signal("");
+
+export const headerTopic = signal("");
+export const headerCwd = signal("");
 
 export const state = {
   isProcessing: false,
   isSubmitting: false,
   currentTurn: -1,
   cwd: "",
-  homeDir: "",
   lastQuery: "",
   lastUsage: null,
   contextWindow: 0,
-  /** True while SSE replay frames are being batched. */
   replaying: false,
 };
 
-/** Agent identity state — used by sse.js and infinite-scroll.js */
 export const agentInfo = { name: "", model: "" };
 export const getAgentInfoState = () => ({ name: agentInfo.name, model: agentInfo.model });
 export const setAgentInfoState = (s) => {
