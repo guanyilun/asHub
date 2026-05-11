@@ -8,13 +8,6 @@ let thinkingBlock = null;
 export const hasThinkingDots = () => thinkingEl != null;
 export const hasThinkingBlock = () => thinkingBlock != null;
 
-/** Save/restore for infinite-scroll replay processing */
-export const getThinkingState = () => ({ thinkingEl, thinkingBlock });
-export const setThinkingState = (s) => {
-  thinkingEl = s.thinkingEl ?? null;
-  thinkingBlock = s.thinkingBlock ?? null;
-};
-
 export const showThinking = () => {
   if (thinkingEl) return;
   thinkingEl = document.createElement("div");
@@ -35,12 +28,8 @@ export const hideThinking = () => {
   thinkingEl = null;
 };
 
-/**
- * Remove any `.thinking` dots in the stream that aren't the live `thinkingEl`.
- * Orphans can be left by infinite-scroll's older-frame replay or by a server
- * stream that ended mid-turn — both routes can leave DOM nodes that no module
- * reference points to, so hideThinking() can no longer clean them.
- */
+// Remove `.thinking` dots that aren't the live thinkingEl — orphans can be
+// left when a server stream ends mid-turn, escaping hideThinking() cleanup.
 export const sweepOrphanThinking = (stream) => {
   if (!stream) return;
   for (const el of stream.querySelectorAll(".thinking")) {

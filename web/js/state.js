@@ -1,5 +1,5 @@
 export const sessionId = (location.pathname.match(/^\/([0-9a-f]{4,32})\/?$/) ?? [])[1] ?? "";
-export const eventsUrl = `/${sessionId}/events?tail=50`;
+export const eventsUrl = `/${sessionId}/events`;
 export const submitUrl = `/${sessionId}/submit`;
 
 export const state = {
@@ -76,13 +76,7 @@ export const queryHistory = {
   get hasItems() { return this._items.length > 0; },
 };
 
-/** Agent identity state — used by sse.js and infinite-scroll.js */
 export const agentInfo = { name: "", model: "" };
-export const getAgentInfoState = () => ({ name: agentInfo.name, model: agentInfo.model });
-export const setAgentInfoState = (s) => {
-  agentInfo.name = s?.name ?? "";
-  agentInfo.model = s?.model ?? "";
-};
 
 const spinner = document.getElementById("spinner");
 const cancelBtn = document.getElementById("cancel-turn");
