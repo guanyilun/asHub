@@ -18,10 +18,10 @@ export const unregisterSession = (view) => {
   if (activeSessionId.value === view.id) activeSessionId.value = "";
 };
 
-/** True when the SPA-switching flag is set in localStorage. */
+/** SPA-switching is on by default; opt out with localStorage.ash_spa = "0". */
 export const spaEnabled = () => {
-  try { return localStorage.getItem("ash_spa") === "1"; }
-  catch { return false; }
+  try { return localStorage.getItem("ash_spa") !== "0"; }
+  catch { return true; }
 };
 
 // Show only the active <session-view>; the rest stay mounted (live SSE,
