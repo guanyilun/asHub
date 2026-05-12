@@ -114,18 +114,27 @@ const applyCtxFilter = () => {
   });
 };
 
+let ctxFetchSeq = 0;
+let ctxFetchAbort = null;
+
 const renderContext = async () => {
   const c = ctx();
   if (c) c.selected.clear();
   const sid = currentSessionId();
   if (!sid) { ctxBody.innerHTML = `<div class="ctx-empty">${t("ctx.no.session")}</div>`; updateDropButton(); return; }
+  ctxFetchAbort?.abort();
+  const ac = new AbortController();
+  ctxFetchAbort = ac;
+  const mySeq = ++ctxFetchSeq;
   ctxBody.innerHTML = `<div class="ctx-empty">${t("ctx.loading")}</div>`;
   let data;
   try {
-    const res = await fetch(`/${sid}/context`);
+    const res = await fetch(`/${sid}/context`, { signal: ac.signal });
     if (!res.ok) throw new Error(await res.text());
     data = await res.json();
+    if (mySeq !== ctxFetchSeq) return;
   } catch (e) {
+    if (e?.name === "AbortError" || mySeq !== ctxFetchSeq) return;
     ctxBody.innerHTML = `<div class="ctx-empty">${escape(String(e.message ?? e))}</div>`;
     updateDropButton();
     return;

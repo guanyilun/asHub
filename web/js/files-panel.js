@@ -186,20 +186,30 @@ filesBody?.addEventListener("click", (e) => {
   toggleDir(entry);
 });
 
+let fetchSeq = 0;
+let fetchAbort = null;
+
 const fetchFiles = async () => {
   if (!filesBody || !filesCwd || !filesEmpty) return;
   const sid = currentSessionId();
   if (!sid) { showFilesEmpty(t("files.no.session"), t("files.no.session.hint")); return; }
+  // Cancel any in-flight request — rapid session switches otherwise race.
+  fetchAbort?.abort();
+  const ac = new AbortController();
+  fetchAbort = ac;
+  const mySeq = ++fetchSeq;
   showFilesEmpty(t("files.loading"));
   filesBody.querySelectorAll(":scope > .files-entry, :scope > .files-children").forEach((el) => el.remove());
   expandedDirs().clear();
   try {
-    const resp = await fetch(`/${sid}/files`);
+    const resp = await fetch(`/${sid}/files`, { signal: ac.signal });
     const data = await resp.json();
+    if (mySeq !== fetchSeq) return;  // a newer fetch took over
     filesCwd.textContent = data.cwd || "";
     filesCwd.title = data.cwd || "";
     renderFiles(data.files || [], "");
-  } catch {
+  } catch (e) {
+    if (e?.name === "AbortError" || mySeq !== fetchSeq) return;
     showFilesEmpty(t("files.failed"), t("files.failed.hint"));
   }
 };
