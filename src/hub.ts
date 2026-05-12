@@ -210,8 +210,6 @@ interface PersistedSession {
   lastModified?: number;
 }
 
-// Backfill for pre-#21 sessions: meta.json lacks `provider`. Look up
-// which registered provider's catalog contains the persisted model.
 function inferProviderForModel(model: string | undefined): string | undefined {
   if (!model) return undefined;
   for (const name of getProviderNames()) {
@@ -221,6 +219,13 @@ function inferProviderForModel(model: string | undefined): string | undefined {
     if (p.models?.includes(model)) return name;
   }
   return undefined;
+}
+
+function providerHasModel(name: string | undefined, model: string | undefined): boolean {
+  if (!name || !model) return false;
+  const p = resolveProvider(name);
+  if (!p) return false;
+  return p.defaultModel === model || (p.models?.includes(model) ?? false);
 }
 
 async function loadPersistedSessions(): Promise<PersistedSession[]> {
@@ -250,22 +255,26 @@ async function loadPersistedSessions(): Promise<PersistedSession[]> {
       } catch {}
     }
 
-    // Build a model→provider observation table from sessions that already have
-    // both fields persisted (post-#21). This covers dynamic-provider models
-    // (e.g. ollama-cloud) that won't appear in any static catalog.
+    // Fallback for dynamic-catalog models that never appear in any static `models` list.
     const observed = new Map<string, string>();
     for (const s of results) {
       if (s.model && s.provider) observed.set(s.model, s.provider);
     }
 
-    // Backfill missing provider on legacy sessions using observations first,
-    // then fall back to the static catalog lookup.
     for (const s of results) {
-      if (s.provider || !s.model) continue;
-      const inferred = observed.get(s.model) ?? inferProviderForModel(s.model);
-      if (inferred) {
-        s.provider = inferred;
-        console.log(`[hub] backfilled provider="${inferred}" for legacy session ${s.id} (model=${s.model})`);
+      if (!s.model) continue;
+      const staticMatch = inferProviderForModel(s.model);
+
+      if (!s.provider) {
+        const inferred = staticMatch ?? observed.get(s.model);
+        if (inferred) {
+          s.provider = inferred;
+          console.log(`[hub] backfilled provider="${inferred}" for session ${s.id} (model=${s.model})`);
+        }
+      } else if (staticMatch && staticMatch !== s.provider && !providerHasModel(s.provider, s.model)) {
+        // Heal persisted pairings written while a stale defaultProvider was active.
+        console.log(`[hub] corrected stale provider for session ${s.id}: "${s.provider}" → "${staticMatch}" (model=${s.model})`);
+        s.provider = staticMatch;
       }
     }
 
