@@ -1,5 +1,6 @@
 import { escape, stripAnsi, mdToHtml, highlightWithin, blockToText } from "./utils.js";
 import { sessionId, eventsUrl, state, setBusy, agentInfo } from "./state.js";
+import { signal, effect } from "../vendor/signals-core.js";
 import { t } from "./i18n.js";
 import { maybeScroll, forceScrollBottom } from "./stream/scroll.js";
 import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
@@ -56,8 +57,16 @@ setTimeout(() => {
   }
 }, 8000);
 
-// Track connection state so langchange can refresh the correct text
-let connState = "connecting"; // "connecting" | "connected" | "reconnecting" | "nosession"
+const connState = signal(/** @type {"connecting"|"connected"|"reconnecting"|"nosession"} */ ("connecting"));
+
+effect(() => {
+  switch (connState.value) {
+    case "connected":     conn.textContent = ""; break;
+    case "connecting":    conn.textContent = t("connecting"); break;
+    case "reconnecting":  conn.textContent = t("reconnecting"); break;
+    case "nosession":     conn.textContent = t("no.session"); break;
+  }
+});
 
 // ── Replay batching ───────────────────────────────────────────────────
 // When SSE connects it replays buffered frames synchronously.  We run
@@ -353,8 +362,7 @@ bindHandlers(handlers);
 const connect = () => {
   const es = new EventSource(eventsUrl);
   es.onopen = () => {
-    conn.textContent = "";
-    connState = "connected";
+    connState.value = "connected";
     dot.classList.remove("stale");
     // Enter replay batching mode — the hub is about to replay buffered
     // frames.  We defer heavy work until replay finishes.
@@ -362,8 +370,7 @@ const connect = () => {
   };
   es.onerror = () => {
     hidePageLoader();
-    conn.textContent = t("reconnecting");
-    connState = "reconnecting";
+    connState.value = "reconnecting";
     dot.classList.add("stale");
     // If we lost connection mid-replay, flush any remaining deferred work.
     if (state.replaying) exitReplayMode();
@@ -381,23 +388,10 @@ const connect = () => {
   };
 };
 
-// Set initial connection status with i18n (HTML has fallback text)
-conn.textContent = t("connecting");
-connState = "connecting";
-
 if (sessionId) {
   connect();
 } else {
   hidePageLoader();
-  conn.textContent = t("no.session");
-  connState = "nosession";
+  connState.value = "nosession";
   dot.classList.add("stale");
 }
-
-// Refresh connection status text when language changes
-document.addEventListener("langchange", () => {
-  if (connState === "connecting") conn.textContent = t("connecting");
-  else if (connState === "reconnecting") conn.textContent = t("reconnecting");
-  else if (connState === "nosession") conn.textContent = t("no.session");
-  // "connected" → keep empty
-});

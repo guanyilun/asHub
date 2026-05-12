@@ -1,5 +1,6 @@
 import { escape } from "./utils.js";
-import { sessionId, state } from "./state.js";
+import { sessionId, state, homeDir, headerTopic, headerCwd } from "./state.js";
+import { effect } from "../vendor/signals-core.js";
 import { attachAutocomplete } from "./autocomplete.js";
 import { t } from "./i18n.js";
 
@@ -11,23 +12,30 @@ const newCwd = document.getElementById("new-session-cwd");
 const newErr = document.getElementById("new-session-err");
 const newBtn = document.getElementById("new-session");
 
-export const setSessionTopic = (title) => {
-  if (!sessionTopic) return;
-  sessionTopic.textContent = title ?? "";
-  sessionTopic.dataset.empty = t("untitled");
-};
+export const setSessionTopic = (title) => { headerTopic.value = title ?? ""; };
+export const setSessionCwd = (cwd) => { headerCwd.value = cwd ?? ""; };
 
 const homeRelativeCwd = (cwd) => {
   if (!cwd) return "";
-  if (state.homeDir && cwd.startsWith(state.homeDir)) return "~" + cwd.slice(state.homeDir.length);
+  const home = homeDir.value;
+  if (home && cwd.startsWith(home)) return "~" + cwd.slice(home.length);
   return cwd;
 };
 
-export const setSessionCwd = (cwd) => {
-  if (!sessionCwdMeta) return;
-  sessionCwdMeta.textContent = homeRelativeCwd(cwd);
-  if (cwd) sessionCwdMeta.title = cwd;
-};
+if (sessionTopic) {
+  effect(() => {
+    sessionTopic.textContent = headerTopic.value;
+    sessionTopic.dataset.empty = t("untitled");
+  });
+}
+
+if (sessionCwdMeta) {
+  effect(() => {
+    const cwd = headerCwd.value;
+    sessionCwdMeta.textContent = homeRelativeCwd(cwd);
+    if (cwd) sessionCwdMeta.title = cwd;
+  });
+}
 
 const LS_LAST_CWD = "ash.last-cwd";
 
@@ -36,7 +44,8 @@ let sessionsHash = "";
 const shortenCwd = (cwd) => {
   if (!cwd) return "";
   let path = cwd;
-  if (state.homeDir && path.startsWith(state.homeDir)) path = "~" + path.slice(state.homeDir.length);
+  const home = homeDir.value;
+  if (home && path.startsWith(home)) path = "~" + path.slice(home.length);
   const parts = path.split("/").filter(Boolean);
   if (parts.length <= 2) return path;
   return (path.startsWith("~") ? "~/…/" : "…/") + parts.slice(-2).join("/");
@@ -205,9 +214,9 @@ const renderSessions = async () => {
     const hash = JSON.stringify(list);
     if (hash === sessionsHash) return;  // 5s poll: skip rebuild when nothing changed
     sessionsHash = hash;
-    if (!state.homeDir && list[0]?.cwd) {
+    if (!homeDir.value && list[0]?.cwd) {
       const m = list[0].cwd.match(/^(\/Users\/[^/]+|\/home\/[^/]+)/);
-      if (m) state.homeDir = m[1];
+      if (m) homeDir.value = m[1];
     }
     sessionList.innerHTML = "";
     const buckets = new Map();

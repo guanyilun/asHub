@@ -1,3 +1,5 @@
+import { signal } from "../vendor/signals-core.js";
+
 const LS_LANG = "ash.lang";
 
 const translations = {
@@ -314,17 +316,12 @@ const translations = {
   },
 };
 
-let currentLang = "en";
+export const lang = signal("en");
 
-/**
- * Translate a key with optional substitutions.
- * Usage: t("key") or t("key", { n: 5, msg: "error" })
- */
 export const t = (key, subs) => {
-  const map = translations[currentLang] ?? translations.en;
+  const map = translations[lang.value] ?? translations.en;
   let text = map[key];
   if (text === undefined) {
-    // Fall back to English
     text = (translations.en ?? {})[key];
     if (text === undefined) return key;
   }
@@ -336,21 +333,12 @@ export const t = (key, subs) => {
   return text;
 };
 
-/**
- * Get the current language code.
- */
-export const lang = () => currentLang;
-
-/**
- * Set language and re-scan the DOM for data-i18n attributes.
- */
 export const setLang = (code) => {
   if (!translations[code]) return;
-  currentLang = code;
+  lang.value = code;
   document.documentElement.setAttribute("lang", code === "zh" ? "zh-CN" : "en");
   try { localStorage.setItem(LS_LANG, code); } catch {}
   scanI18n();
-  // Notify other modules so they can refresh dynamically-managed text
   document.dispatchEvent(new CustomEvent("langchange", { detail: { lang: code } }));
 };
 
@@ -392,16 +380,13 @@ export const scanI18n = (root = document) => {
   });
 };
 
-// ── Init ───────────────────────────────────────────────────────────
 try {
   const stored = localStorage.getItem(LS_LANG);
-  if (stored && translations[stored]) currentLang = stored;
+  if (stored && translations[stored]) lang.value = stored;
 } catch {}
 
-// Apply lang attribute on load
-document.documentElement.setAttribute("lang", currentLang === "zh" ? "zh-CN" : "en");
+document.documentElement.setAttribute("lang", lang.value === "zh" ? "zh-CN" : "en");
 
-// Scan on DOM ready
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => scanI18n());
 } else {
