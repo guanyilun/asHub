@@ -1,6 +1,7 @@
-import { bootSession } from "./sse.js";
+import { handlers, onReplayDone, hidePageLoader, REPLAY_FLUSH_DELAY } from "./sse.js";
 import { registerSession, unregisterSession } from "./session-manager.js";
 import { STATE_DEFAULTS } from "./state.js";
+import { signal } from "../vendor/signals-core.js";
 
 const parseId = () =>
   (location.pathname.match(/^\/([0-9a-f]{4,32})\/?$/) ?? [])[1] ?? "";
@@ -42,28 +43,93 @@ class SessionView extends HTMLElement {
       activeRoles: new Set(["all"]),
     };
 
-    const signal = this.controller.signal;
+    this.connState = signal(/** @type {"connecting"|"connected"|"reconnecting"|"nosession"} */ ("connecting"));
+    this.replayFlushTimer = null;
+
+    const signalAbort = this.controller.signal;
     this.streamEl.addEventListener("scroll", () => {
       const stick = this.streamEl.scrollHeight - this.streamEl.scrollTop - this.streamEl.clientHeight <= SCROLL_SLOP;
       this.scroll.stickToBottom = stick;
       if (this.pillEl && stick) this.pillEl.hidden = true;
-    }, { signal });
+    }, { signal: signalAbort });
     this.pillEl?.addEventListener("click", () => {
       this.streamEl.scrollTo({ top: this.streamEl.scrollHeight, behavior: "smooth" });
       this.scroll.stickToBottom = true;
       if (this.pillEl) this.pillEl.hidden = true;
-    }, { signal });
+    }, { signal: signalAbort });
     this.querySelector(".stream-empty-prompt")?.addEventListener("click", () => {
       document.getElementById("query")?.focus();
-    }, { signal });
+    }, { signal: signalAbort });
 
     registerSession(this);
-    bootSession(signal);
+    this.connect();
   }
 
   disconnectedCallback() {
+    if (this.replayFlushTimer) clearTimeout(this.replayFlushTimer);
     this.controller?.abort();
     unregisterSession(this);
+  }
+
+  connect() {
+    const signalAbort = this.controller.signal;
+    // 8s fallback: if SSE never opens, drop the page loader anyway.
+    const loaderFallback = setTimeout(hidePageLoader, 8000);
+    signalAbort.addEventListener("abort", () => clearTimeout(loaderFallback), { once: true });
+
+    if (!this.id) {
+      hidePageLoader();
+      this.connState.value = "nosession";
+      return;
+    }
+
+    const es = new EventSource(`/${this.id}/events?tail=50`);
+    this.es = es;
+    signalAbort.addEventListener("abort", () => es.close(), { once: true });
+
+    es.onopen = () => {
+      this.connState.value = "connected";
+      // Enter replay batching mode — the hub is about to replay buffered
+      // frames.  Defer heavy work until replay finishes.
+      this.enterReplayMode();
+    };
+    es.onerror = () => {
+      hidePageLoader();
+      this.connState.value = "reconnecting";
+      // If we lost connection mid-replay, flush deferred work.
+      if (this.state.replaying) this.exitReplayMode();
+    };
+    es.onmessage = (ev) => {
+      let frame;
+      try { frame = JSON.parse(ev.data); } catch { return; }
+      const fn = handlers[frame?.meta?.name];
+      if (fn) {
+        try { fn.call(this, frame.payload); }
+        catch (e) { console.error(frame.meta.name, e); }
+      }
+      this.scheduleReplayFlush();
+    };
+  }
+
+  enterReplayMode() {
+    this.state.replaying = true;
+    if (this.replayFlushTimer) clearTimeout(this.replayFlushTimer);
+    // Safety fallback: if no frames arrive at all (empty session), exit
+    // replay mode after 500ms so the UI doesn't stay in batching state.
+    this.replayFlushTimer = setTimeout(() => this.exitReplayMode(), 500);
+  }
+
+  scheduleReplayFlush() {
+    if (!this.state.replaying) return;
+    if (this.replayFlushTimer) clearTimeout(this.replayFlushTimer);
+    this.replayFlushTimer = setTimeout(() => this.exitReplayMode(), REPLAY_FLUSH_DELAY);
+  }
+
+  exitReplayMode() {
+    this.state.replaying = false;
+    if (this.replayFlushTimer) { clearTimeout(this.replayFlushTimer); this.replayFlushTimer = null; }
+    hidePageLoader();
+    onReplayDone(this);
   }
 }
 

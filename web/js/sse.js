@@ -1,12 +1,12 @@
 import { escape, stripAnsi, mdToHtml, highlightWithin, renderMathIn, blockToText } from "./utils.js";
-import { sessionId, eventsUrl, state, setBusy, agentInfo } from "./state.js";
-import { signal, effect } from "../vendor/signals-core.js";
+import { setBusy } from "./state.js";
+import { effect } from "../vendor/signals-core.js";
 import { t } from "./i18n.js";
 import { maybeScroll, forceScrollBottom } from "./stream/scroll.js";
 import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
 import {
-  renderUsage, hideUsage, renderTurnSep, renderPromptRow, renderErrorCard,
-  renderDiffBlock, renderToolBody, buildToolRow,
+  renderUsage, hideUsage, renderTurnSep, renderErrorCard,
+  renderDiffBlock, renderToolBody, buildToolRow, renderPromptRow,
 } from "./stream/renderers.js";
 import {
   showThinking, hideThinking, hasThinkingDots,
@@ -22,14 +22,12 @@ import {
   absorbAsToolBody, trackToolRow,
 } from "./stream/live-output.js";
 import { createUserBox } from "./actions.js";
-import { updateSessionTitle, setCurrentSessionStatus } from "./sidebar.js";
+import { updateSessionTitle, setSessionStatus } from "./sidebar.js";
 import { refreshFilesIfOpen } from "./files-panel.js";
 import { compactReasoning } from "./stream/compact.js";
 import { activeSession } from "./session-manager.js";
 
-const sess = () => activeSession.peek();
-const streamEl = () => sess()?.streamEl ?? null;
-
+// ── Shared chrome (page-level singletons reflecting the active session) ──
 const conn = document.getElementById("conn");
 const dot = document.querySelector(".live-dot");
 const instanceLabel = document.getElementById("instance");
@@ -45,221 +43,199 @@ if (loaderBarFill) {
   setTimeout(() => { loaderBarFill.style.width = "90%"; }, 3000);
 }
 
-const hidePageLoader = () => {
+export const hidePageLoader = () => {
   if (loaderBarFill) loaderBarFill.style.width = "100%";
   setTimeout(() => {
     if (pageLoader) pageLoader.classList.add("hidden");
   }, 200);
 };
 
-const connState = signal(/** @type {"connecting"|"connected"|"reconnecting"|"nosession"} */ ("connecting"));
-
+// Reflect the active session's connection status onto the shared chrome.
 effect(() => {
-  switch (connState.value) {
+  const cs = activeSession.value?.connState.value ?? "nosession";
+  if (conn) switch (cs) {
     case "connected":     conn.textContent = ""; break;
     case "connecting":    conn.textContent = t("connecting"); break;
     case "reconnecting":  conn.textContent = t("reconnecting"); break;
     case "nosession":     conn.textContent = t("no.session"); break;
   }
+  if (dot) dot.classList.toggle("stale", cs !== "connected");
 });
 
-// ── Replay batching ───────────────────────────────────────────────────
-// When SSE connects it replays buffered frames synchronously.  We run
-// expensive operations (scroll, compactReasoning, highlightWithin) only
-// once at the end instead of for every frame during replay.
-
-const REPLAY_FLUSH_DELAY = 12;  // ms — if no frames arrive within this window, replay is done
-
-let replayFlushTimer = null;
-
-const enterReplayMode = () => {
-  state.replaying = true;
-  // Safety fallback: if no frames arrive at all (empty session), exit
-  // replay mode after 500ms so the UI doesn't stay in batching state.
-  if (replayFlushTimer) clearTimeout(replayFlushTimer);
-  replayFlushTimer = setTimeout(exitReplayMode, 500);
+const renderInstanceLabel = () => {
+  if (!instanceLabel) return;
+  const ai = activeSession.peek()?.agentInfo;
+  if (!ai) { instanceLabel.textContent = ""; return; }
+  const modelTag = ai.model ? `[${ai.model}]` : "";
+  const bits = [ai.name, modelTag].filter(Boolean);
+  instanceLabel.textContent = bits.join(" ");
 };
 
-const scheduleReplayFlush = () => {
-  if (!state.replaying) return;
-  if (replayFlushTimer) clearTimeout(replayFlushTimer);
-  replayFlushTimer = setTimeout(exitReplayMode, REPLAY_FLUSH_DELAY);
-};
+// Re-render chrome whenever the active session changes (Phase 3 switching).
+effect(() => {
+  const s = activeSession.value;
+  renderInstanceLabel();
+  // Reflect the active session's busy state.
+  const spinnerEl = document.getElementById("spinner");
+  const cancelEl = document.getElementById("cancel-turn");
+  const busy = !!s?.state.isProcessing;
+  if (spinnerEl) spinnerEl.hidden = !busy;
+  if (cancelEl) cancelEl.hidden = !busy;
+});
 
-const exitReplayMode = () => {
-  state.replaying = false;
-  if (replayFlushTimer) { clearTimeout(replayFlushTimer); replayFlushTimer = null; }
-  // Content is fully rendered — hide the page loader.
-  hidePageLoader();
-  // Run all deferred heavy work in one pass.
-  const stream = streamEl();
-  if (stream) {
-    sweepOrphanThinking(stream);
-    compactReasoning(stream);
-    highlightWithin(stream);  // cheap no-op if no code blocks exist
-    renderMathIn(stream);     // cheap no-op if no math placeholders exist
-  }
-  forceScrollBottom();
-};
+export const REPLAY_FLUSH_DELAY = 12;  // ms
 
-// Merge non-empty fields so a partial replay event doesn't blank known values.
-const handlers = {
-  "agent:info": (p) => {
+// Handlers run with `this` bound to the owning SessionView. Mutations go on
+// `this.state` / `this.agentInfo`; chrome updates only fire when this is
+// also the active session.
+export const handlers = {
+  "agent:info"(p) {
     if (p?.name === "web-renderer") return;
-    if (p?.name) agentInfo.name = p.name;
-    if (p?.model) agentInfo.model = p.model;
-    if (p?.provider) agentInfo.provider = p.provider;
-    const modelTag = agentInfo.model ? `[${agentInfo.model}]` : "";
-    const bits = [agentInfo.name, modelTag].filter(Boolean);
-    if (bits.length) instanceLabel.textContent = bits.join(" ");
+    if (p?.name) this.agentInfo.name = p.name;
+    if (p?.model) this.agentInfo.model = p.model;
+    if (p?.provider) this.agentInfo.provider = p.provider;
     if (typeof p?.contextWindow === "number" && p.contextWindow > 0) {
-      state.contextWindow = p.contextWindow;
+      this.state.contextWindow = p.contextWindow;
     }
+    if (this === activeSession.peek()) renderInstanceLabel();
   },
 
-  "shell:cwd-change": (p) => {
-    state.cwd = p?.cwd ?? "";
-    refreshFilesIfOpen();
+  "shell:cwd-change"(p) {
+    this.state.cwd = p?.cwd ?? "";
+    if (this === activeSession.peek()) refreshFilesIfOpen();
   },
 
-  "agent:query": (p) => {
-    closeReply();
-    finalizeThinking();
-    finalizeLiveOutput();
-    resetCompletedTools();
-    startNewSegment();
+  "agent:query"(p) {
+    closeReply(this);
+    finalizeThinking(this);
+    finalizeLiveOutput(this);
+    resetCompletedTools(this);
+    startNewSegment(this);
     const queryText = p?.query ?? "";
     let matched = null;
-    const stream = streamEl();
-    for (const pb of stream?.querySelectorAll(".agent-box.pending") ?? []) {
+    for (const pb of this.streamEl?.querySelectorAll(".agent-box.pending") ?? []) {
       if (pb._queryText === queryText) { matched = pb; break; }
     }
     if (matched) {
-      state.currentTurn++;
-      matched.dataset.turn = String(state.currentTurn);
+      this.state.currentTurn++;
+      matched.dataset.turn = String(this.state.currentTurn);
       matched.classList.remove("pending");
       return;
     }
-    state.currentTurn++;
-    renderTurnSep();
+    this.state.currentTurn++;
+    renderTurnSep(this);
     const box = createUserBox(queryText);
-    box.dataset.turn = String(state.currentTurn);
-    append(box);
+    box.dataset.turn = String(this.state.currentTurn);
+    append(this, box);
   },
 
-  "agent:processing-start": () => {
-    state.lastUsage = null;
-    hideUsage();
-    setBusy(true);
-    if (!state.replaying) setCurrentSessionStatus("session-streaming");
-    hideThinking();
-    const stream = streamEl();
-    if (stream) sweepOrphanThinking(stream);
-    finalizeThinking();
-    finalizeLiveOutput();
-    resetCompletedTools();
-    startNewSegment();
-    showThinking();
+  "agent:processing-start"() {
+    this.state.lastUsage = null;
+    hideUsage(this);
+    setBusy(this, true);
+    if (!this.state.replaying) setSessionStatus(this.id, "session-streaming");
+    hideThinking(this);
+    sweepOrphanThinking(this);
+    finalizeThinking(this);
+    finalizeLiveOutput(this);
+    resetCompletedTools(this);
+    startNewSegment(this);
+    showThinking(this);
   },
 
-  "agent:response-chunk": (p) => {
+  "agent:response-chunk"(p) {
     const blocks = Array.isArray(p?.blocks) ? p.blocks : [];
     const delta = blocks.map(blockToText).join("");
     if (!delta) return;
-    hideThinking();
-    finalizeThinking();
-    appendReplyChunk(delta);
+    hideThinking(this);
+    finalizeThinking(this);
+    appendReplyChunk(this, delta);
   },
 
   // Replay-only: live chunks already covered the segment.
-  "agent:response-segment": (p) => {
-    if (hasReply() || sawLiveSegment()) return;
+  "agent:response-segment"(p) {
+    if (hasReply(this) || sawLiveSegment(this)) return;
     if (!p?.text) return;
-    hideThinking();
-    finalizeThinking();
+    hideThinking(this);
+    finalizeThinking(this);
     const block = document.createElement("div");
     block.className = "agent-reply";
-    block.dataset.turn = String(state.currentTurn);
+    block.dataset.turn = String(this.state.currentTurn);
     block.innerHTML = mdToHtml(stripAnsi(p.text));
-    append(block);
+    append(this, block);
     renderMathIn(block);
-    // Defer highlighting during replay batching.
-    if (!state.replaying) highlightWithin(block);
+    if (!this.state.replaying) highlightWithin(block);
   },
 
-  "agent:thinking-chunk": (p) => {
-    appendThinkingChunk(stripAnsi(p?.text ?? ""));
+  "agent:thinking-chunk"(p) {
+    appendThinkingChunk(this, stripAnsi(p?.text ?? ""));
   },
 
-  "agent:response-done": (p) => {
-    if (p?.response) fillFinalReply(p.response);
-    closeReply();
+  "agent:response-done"(p) {
+    if (p?.response) fillFinalReply(this, p.response);
+    closeReply(this);
   },
 
-  "agent:processing-done": () => {
-    closeReply();
-    hideThinking();
-    finalizeThinking();
-    finalizeLiveOutput();
-    renderUsage();
-    setBusy(false);
-    if (!state.replaying) setCurrentSessionStatus("");
-    // Defer reasoning compaction during replay batching — the exit hook
-    // runs compactReasoning once on the whole stream.
-    if (!state.replaying) { const s = streamEl(); if (s) compactReasoning(s); }
-    scheduleReplayFlush();
+  "agent:processing-done"() {
+    closeReply(this);
+    hideThinking(this);
+    finalizeThinking(this);
+    finalizeLiveOutput(this);
+    renderUsage(this);
+    setBusy(this, false);
+    if (!this.state.replaying) setSessionStatus(this.id, "");
+    if (!this.state.replaying && this.streamEl) compactReasoning(this.streamEl);
+    this.scheduleReplayFlush();
   },
 
-  "agent:cancelled": () => {
-    cancelReply();
-    hideThinking();
-    finalizeThinking();
-    finalizeLiveOutput();
-    const stream = streamEl();
-    stream?.querySelectorAll(".agent-box.pending").forEach((el) => el.remove());
-    setBusy(false);
-    if (!state.replaying) setCurrentSessionStatus("");
-    if (!state.replaying && stream) compactReasoning(stream);
-    scheduleReplayFlush();
+  "agent:cancelled"() {
+    cancelReply(this);
+    hideThinking(this);
+    finalizeThinking(this);
+    finalizeLiveOutput(this);
+    this.streamEl?.querySelectorAll(".agent-box.pending").forEach((el) => el.remove());
+    setBusy(this, false);
+    if (!this.state.replaying) setSessionStatus(this.id, "");
+    if (!this.state.replaying && this.streamEl) compactReasoning(this.streamEl);
+    this.scheduleReplayFlush();
   },
 
-  "agent:error": (p) => {
-    closeReply();
-    hideThinking();
-    finalizeThinking();
-    finalizeLiveOutput();
-    append(renderErrorCard(p?.message ?? "", p?.detail ?? p?.stack));
-    setBusy(false);
-    if (!state.replaying) setCurrentSessionStatus("");
-    if (!state.replaying) { const s = streamEl(); if (s) compactReasoning(s); }
-    scheduleReplayFlush();
+  "agent:error"(p) {
+    closeReply(this);
+    hideThinking(this);
+    finalizeThinking(this);
+    finalizeLiveOutput(this);
+    append(this, renderErrorCard(p?.message ?? "", p?.detail ?? p?.stack));
+    setBusy(this, false);
+    if (!this.state.replaying) setSessionStatus(this.id, "");
+    if (!this.state.replaying && this.streamEl) compactReasoning(this.streamEl);
+    this.scheduleReplayFlush();
   },
 
-  "agent:usage": (p) => { state.lastUsage = p; },
+  "agent:usage"(p) { this.state.lastUsage = p; },
 
-  "session:title": (p) => {
-    updateSessionTitle(sessionId, p?.title ?? "");
+  "session:title"(p) {
+    updateSessionTitle(this.id, p?.title ?? "");
   },
 
-  "agent:tool-started": (p) => {
-    closeReply();
-    hideThinking();
-    finalizeThinking();
-    finalizeLiveOutput();
-    startNewSegment();
+  "agent:tool-started"(p) {
+    closeReply(this);
+    hideThinking(this);
+    finalizeThinking(this);
+    finalizeLiveOutput(this);
+    startNewSegment(this);
     const row = buildToolRow(p);
-    appendToGroup(row);
-    trackToolRow(row);  // cache for live-output to avoid DOM scan
-    bumpToolCount();
-    // Local "working…" hint for users scrolled past the bar spinner.
-    if (state.isProcessing && !hasReply() && !hasThinkingBlock()) {
-      showThinking();
+    appendToGroup(this, row);
+    trackToolRow(this, row);
+    bumpToolCount(this);
+    if (this.state.isProcessing && !hasReply(this) && !hasThinkingBlock(this)) {
+      showThinking(this);
     }
   },
 
-  "agent:tool-completed": (p) => {
+  "agent:tool-completed"(p) {
     const id = p?.toolCallId ?? "";
-    const row = id ? streamEl()?.querySelector(`.tool-row[data-call-id="${CSS.escape(id)}"]`) : null;
+    const row = id ? this.streamEl?.querySelector(`.tool-row[data-call-id="${CSS.escape(id)}"]`) : null;
     if (!row) return;
     const ok = p?.exitCode === 0 || p?.exitCode == null;
     row.classList.add(ok ? "ok" : "err");
@@ -270,13 +246,12 @@ const handlers = {
     tail.textContent = (summary ? ` ${summary} ` : "  ") + mark;
     row.appendChild(tail);
 
-    if (!absorbAsToolBody(id)) {
+    if (!absorbAsToolBody(this, id)) {
       const body = p?.resultDisplay?.body;
       if (body?.kind === "lines" && Array.isArray(body.lines) && body.lines.length) {
         const block = renderToolBody(body.lines);
         row.parentNode.insertBefore(block, row.nextSibling);
       } else if (body?.kind === "diff" && body.diff) {
-        // Reuse permission preview as the result diff if one was rendered.
         let preview = row.previousElementSibling;
         while (preview && !preview.classList.contains("diff-preview")) {
           preview = preview.previousElementSibling;
@@ -290,47 +265,47 @@ const handlers = {
         }
       }
     }
-    maybeScroll();
+    maybeScroll(this);
   },
 
-  "agent:tool-output-chunk": (p) => {
-    appendLiveOutputChunk(p?.chunk ?? "");
+  "agent:tool-output-chunk"(p) {
+    appendLiveOutputChunk(this, p?.chunk ?? "");
   },
 
-  "permission:request": (p) => {
+  "permission:request"(p) {
     if (p?.kind === "file-write" && p?.metadata?.diff) {
-      closeReply();
+      closeReply(this);
       const block = renderDiffBlock(p.metadata.diff, p.title ?? p.metadata.filePath ?? "");
       block.classList.add("diff-preview");
-      appendToGroup(block);
+      appendToGroup(this, block);
     }
   },
 
-  "ui:info": (p) => {
+  "ui:info"(p) {
     const row = document.createElement("div");
     row.className = "ui-info";
     row.textContent = String(p?.message ?? "");
-    append(row);
+    append(this, row);
   },
-  "ui:error": (p) => {
-    append(renderErrorCard(p?.message || t("command.failed"), null));
+  "ui:error"(p) {
+    append(this, renderErrorCard(p?.message || t("command.failed"), null));
   },
 
-  "shell:command-start": (p) => {
-    closeReply();
-    state.cwd = p?.cwd ?? state.cwd;
-    renderPromptRow();
+  "shell:command-start"(p) {
+    closeReply(this);
+    this.state.cwd = p?.cwd ?? this.state.cwd;
+    renderPromptRow(this);
     const row = document.createElement("div");
     row.className = "t-input";
     row.innerHTML = `<span class="t-prompt">&gt;</span>${escape(p?.command ?? "")}`;
-    append(row);
+    append(this, row);
   },
 
-  "shell:command-done": (p) => {
+  "shell:command-done"(p) {
     const text = stripAnsi(p?.output ?? "");
     const isErr = p?.exitCode != null && p.exitCode !== 0;
     if (isErr) {
-      append(renderErrorCard(t("shell.failed", { code: p.exitCode }), text));
+      append(this, renderErrorCard(t("shell.failed", { code: p.exitCode }), text));
       return;
     }
     for (const line of text.split("\n")) {
@@ -338,61 +313,25 @@ const handlers = {
       const row = document.createElement("div");
       row.className = "t-out";
       row.textContent = line;
-      append(row);
+      append(this, row);
     }
   },
 
   // Hub sentinel: fired synchronously after the replay loop so the client
   // can exit batching mode deterministically, even when live events from
   // an active turn arrive immediately after replay.
-  "hub:replay-done": () => {
-    if (state.replaying) exitReplayMode();
+  "hub:replay-done"() {
+    if (this.state.replaying) this.exitReplayMode();
   },
 };
 
-const connect = (signal) => {
-  const es = new EventSource(eventsUrl);
-  signal?.addEventListener("abort", () => es.close(), { once: true });
-  es.onopen = () => {
-    connState.value = "connected";
-    dot.classList.remove("stale");
-    // Enter replay batching mode — the hub is about to replay buffered
-    // frames.  We defer heavy work until replay finishes.
-    enterReplayMode();
-  };
-  es.onerror = () => {
-    hidePageLoader();
-    connState.value = "reconnecting";
-    dot.classList.add("stale");
-    // If we lost connection mid-replay, flush any remaining deferred work.
-    if (state.replaying) exitReplayMode();
-  };
-  es.onmessage = (ev) => {
-    let frame;
-    try { frame = JSON.parse(ev.data); } catch { return; }
-    const fn = handlers[frame?.meta?.name];
-    if (fn) {
-      try { fn(frame.payload); } catch (e) { console.error(frame.meta.name, e); }
-    }
-    // Each frame resets the debounce timer.  When no frame arrives for
-    // REPLAY_FLUSH_DELAY ms, the replay batch is considered done.
-    scheduleReplayFlush();
-  };
-};
-
-export const bootSession = (signal) => {
-  const timer = setTimeout(() => {
-    if (pageLoader && !pageLoader.classList.contains("hidden")) {
-      hidePageLoader();
-    }
-  }, 8000);
-  signal?.addEventListener("abort", () => clearTimeout(timer), { once: true });
-
-  if (sessionId) {
-    connect(signal);
-  } else {
-    hidePageLoader();
-    connState.value = "nosession";
-    dot.classList.add("stale");
-  }
+// Heavy work deferred until replay batch completes — invoked by
+// SessionView.exitReplayMode().
+export const onReplayDone = (session) => {
+  if (!session?.streamEl) return;
+  sweepOrphanThinking(session);
+  compactReasoning(session.streamEl);
+  highlightWithin(session.streamEl);
+  renderMathIn(session.streamEl);
+  forceScrollBottom(session);
 };

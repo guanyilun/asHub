@@ -1,15 +1,11 @@
 import { hideEmptyState, maybeScroll } from "./scroll.js";
 import { append, insertStreamNode } from "./tool-group.js";
 import { t } from "../i18n.js";
-import { activeSession } from "../session-manager.js";
 
-const sess = () => activeSession.peek();
+export const hasThinkingDots = (session) => (session?.thinking.el ?? null) != null;
+export const hasThinkingBlock = (session) => (session?.thinking.block ?? null) != null;
 
-export const hasThinkingDots = () => (sess()?.thinking.el ?? null) != null;
-export const hasThinkingBlock = () => (sess()?.thinking.block ?? null) != null;
-
-export const showThinking = () => {
-  const session = sess();
+export const showThinking = (session) => {
   if (!session || session.thinking.el) return;
   const el = document.createElement("div");
   el.className = "thinking";
@@ -18,14 +14,13 @@ export const showThinking = () => {
     `<span class="thinking-dot"></span>` +
     `<span class="thinking-dot"></span>` +
     `<span class="thinking-label">${t("thinking")}</span>`;
-  hideEmptyState();
-  insertStreamNode(el);
+  hideEmptyState(session);
+  insertStreamNode(session, el);
   session.thinking.el = el;
-  maybeScroll();
+  maybeScroll(session);
 };
 
-export const hideThinking = () => {
-  const session = sess();
+export const hideThinking = (session) => {
   const el = session?.thinking.el;
   if (!el) return;
   el.remove();
@@ -34,9 +29,10 @@ export const hideThinking = () => {
 
 // Remove `.thinking` dots that aren't the live thinkingEl — orphans can be
 // left when a server stream ends mid-turn, escaping hideThinking() cleanup.
-export const sweepOrphanThinking = (stream) => {
+export const sweepOrphanThinking = (session) => {
+  const stream = session?.streamEl;
   if (!stream) return;
-  const live = sess()?.thinking.el ?? null;
+  const live = session.thinking.el ?? null;
   for (const el of stream.querySelectorAll(".thinking")) {
     if (el !== live) el.remove();
   }
@@ -67,11 +63,9 @@ const setThinkingCollapsed = (block, collapsed) => {
   }
 };
 
-export const appendThinkingChunk = (text) => {
-  if (!text) return;
-  const session = sess();
-  if (!session) return;
-  hideThinking();
+export const appendThinkingChunk = (session, text) => {
+  if (!text || !session) return;
+  hideThinking(session);
   if (!session.thinking.block) {
     const block = document.createElement("div");
     block.className = "thinking-block";
@@ -88,16 +82,15 @@ export const appendThinkingChunk = (text) => {
     inner.className = "thinking-block-inner";
     body.appendChild(inner);
     block.append(head, body);
-    append(block);
+    append(session, block);
   }
   const inner = session.thinking.block.querySelector(".thinking-block-inner");
   inner.textContent = (inner.textContent ?? "") + text;
   inner.scrollTop = inner.scrollHeight;
-  maybeScroll();
+  maybeScroll(session);
 };
 
-export const finalizeThinking = () => {
-  const session = sess();
+export const finalizeThinking = (session) => {
   const block = session?.thinking.block;
   if (!block) return;
   const inner = block.querySelector(".thinking-block-inner");
@@ -113,13 +106,11 @@ export const finalizeThinking = () => {
 
 // Refresh translated labels on language change
 document.addEventListener("langchange", () => {
-  // Thinking block heads
   document.querySelectorAll(".thinking-block-head").forEach((head) => {
     const block = head.closest(".thinking-block");
     const isCollapsed = block?.classList?.contains("collapsed") ?? false;
     head.textContent = `💭 ${t(isCollapsed ? "thought" : "thinking")}`;
   });
-  // Thinking dots label
   document.querySelectorAll(".thinking-label").forEach((label) => {
     label.textContent = t("thinking");
   });

@@ -115,9 +115,14 @@ export const setAgentInfoState = (s) => {
 const spinner = document.getElementById("spinner");
 const cancelBtn = document.getElementById("cancel-turn");
 
-export const setBusy = (b) => {
-  const s = activeSession.peek();
-  if (s) s.state.isProcessing = b;
-  if (spinner) spinner.hidden = !b;
-  if (cancelBtn) cancelBtn.hidden = !b;
+/**
+ * Set busy state on the given session and, if it's the active one, update
+ * the shared chrome.  Background sessions update only their own state.
+ */
+export const setBusy = (session, b) => {
+  if (session) session.state.isProcessing = b;
+  if (session === activeSession.peek()) {
+    if (spinner) spinner.hidden = !b;
+    if (cancelBtn) cancelBtn.hidden = !b;
+  }
 };

@@ -2,35 +2,31 @@ import {
   escape, fmtNum, langForPath, highlightDiffLine,
   diffToText, copyToClipboard,
 } from "../utils.js";
-import { state } from "../state.js";
 import { append } from "./tool-group.js";
 import { t } from "../i18n.js";
-import { activeSession } from "../session-manager.js";
 
-const sess = () => activeSession.peek();
-
-export const hideUsage = () => {
-  const strip = sess()?.usageStripEl;
+export const hideUsage = (session) => {
+  const strip = session?.usageStripEl;
   if (strip) strip.hidden = true;
 };
 
-export const renderUsage = () => {
-  if (!state.lastUsage) return;
-  const session = sess();
+export const renderUsage = (session) => {
+  const st = session?.state;
+  if (!st?.lastUsage) return;
   const usageEl = session?.usageEl;
   const usageStrip = session?.usageStripEl;
   if (!usageEl) return;
-  const inTok = state.lastUsage.prompt_tokens ?? 0;
-  const outTok = state.lastUsage.completion_tokens ?? 0;
-  const cacheHit = state.lastUsage.prompt_cache_hit_tokens ?? 0;
-  const cacheMiss = state.lastUsage.prompt_cache_miss_tokens ?? 0;
+  const inTok = st.lastUsage.prompt_tokens ?? 0;
+  const outTok = st.lastUsage.completion_tokens ?? 0;
+  const cacheHit = st.lastUsage.prompt_cache_hit_tokens ?? 0;
+  const cacheMiss = st.lastUsage.prompt_cache_miss_tokens ?? 0;
   let pct = 0;
   let ctxText = `${(inTok / 1000).toFixed(1)}k`;
-  if (state.contextWindow > 0) {
-    pct = Math.round((inTok / state.contextWindow) * 100);
-    ctxText = `${(inTok / 1000).toFixed(1)}k / ${(state.contextWindow / 1000).toFixed(0)}k`;
+  if (st.contextWindow > 0) {
+    pct = Math.round((inTok / st.contextWindow) * 100);
+    ctxText = `${(inTok / 1000).toFixed(1)}k / ${(st.contextWindow / 1000).toFixed(0)}k`;
   }
-  const totalTok = state.lastUsage.total_tokens ?? (inTok + outTok);
+  const totalTok = st.lastUsage.total_tokens ?? (inTok + outTok);
   const cacheHtml = (cacheHit > 0 || cacheMiss > 0)
     ? `<span class="usage-chip usage-cache" title="${t("usage.cache")}">` +
         `<span class="cache-dot hit"></span>${fmtNum(cacheHit)}` +
@@ -44,36 +40,38 @@ export const renderUsage = () => {
     `<span class="usage-chip" title="${t("usage.total")}">Σ ${fmtNum(totalTok)}</span>` +
     cacheHtml +
     `<span class="usage-chip usage-ctx" title="${t("usage.context")}">` +
-      (state.contextWindow > 0
+      (st.contextWindow > 0
         ? `<span class="usage-bar"><span style="width:${pct}%"></span></span>`
         : "") +
-      `${ctxText}${state.contextWindow > 0 ? ` (${pct}%)` : ""}` +
+      `${ctxText}${st.contextWindow > 0 ? ` (${pct}%)` : ""}` +
     `</span>`;
   usageEl.classList.toggle("warm", pct >= 30 && pct < 70);
   usageEl.classList.toggle("hot", pct >= 70);
   if (usageStrip) usageStrip.hidden = false;
 };
 
-export const renderTurnSep = () => {
+export const renderTurnSep = (session) => {
+  const cwd = session?.state.cwd ?? "";
   const sep = document.createElement("div");
   sep.className = "turn-sep";
   sep.innerHTML =
     `<span class="turn-line"></span>` +
-    (state.cwd ? `<span class="turn-cwd">${escape(state.cwd)}</span>` : "") +
+    (cwd ? `<span class="turn-cwd">${escape(cwd)}</span>` : "") +
     `<span class="turn-time">${new Date().toLocaleTimeString()}</span>` +
     `<span class="turn-line"></span>`;
-  append(sep);
+  append(session, sep);
   return sep;
 };
 
-export const renderPromptRow = () => {
-  if (!state.cwd) return;
+export const renderPromptRow = (session) => {
+  const cwd = session?.state.cwd ?? "";
+  if (!cwd) return;
   const row = document.createElement("div");
   row.className = "pl-row";
   row.innerHTML =
-    `<span class="pl-left"><span class="pl-path">${escape(state.cwd)}</span></span>` +
+    `<span class="pl-left"><span class="pl-path">${escape(cwd)}</span></span>` +
     `<span class="pl-right"><span class="pl-seg pl-time">${new Date().toLocaleTimeString()}</span></span>`;
-  append(row);
+  append(session, row);
 };
 
 export const renderErrorCard = (message, detail) => {

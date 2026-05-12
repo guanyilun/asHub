@@ -1,45 +1,38 @@
 import { maybeScroll } from "./scroll.js";
 import { t } from "../i18n.js";
-import { activeSession } from "../session-manager.js";
 
-const sess = () => activeSession.peek();
-
-const flushLiveOutput = () => {
-  const session = sess();
+const flushLiveOutput = (session) => {
   const lo = session?.liveOutput.output;
   if (!lo) return;
   lo.rafPending = false;
   const el = lo.blockEl;
   el.textContent = lo.lines.join("\n");
   el.scrollTop = el.scrollHeight;
-  maybeScroll();
+  maybeScroll(session);
 };
 
-const scheduleLiveOutput = () => {
-  const lo = sess()?.liveOutput.output;
+const scheduleLiveOutput = (session) => {
+  const lo = session?.liveOutput.output;
   if (!lo || lo.rafPending) return;
   lo.rafPending = true;
-  requestAnimationFrame(flushLiveOutput);
+  requestAnimationFrame(() => flushLiveOutput(session));
 };
 
-export const finalizeLiveOutput = () => {
-  const session = sess();
+export const finalizeLiveOutput = (session) => {
   const lo = session?.liveOutput.output;
   if (!lo) return;
-  if (lo.rafPending) flushLiveOutput();
+  if (lo.rafPending) flushLiveOutput(session);
   lo.blockEl.classList.add("final");
   session.liveOutput.output = null;
 };
 
-export const resetCompletedTools = () => {
-  sess()?.liveOutput.completed.clear();
+export const resetCompletedTools = (session) => {
+  session?.liveOutput.completed.clear();
 };
 
 // Output-chunk events have no toolCallId; attach to the latest tool-row.
-export const appendLiveOutputChunk = (chunk) => {
-  if (!chunk) return;
-  const session = sess();
-  if (!session) return;
+export const appendLiveOutputChunk = (session, chunk) => {
+  if (!chunk || !session) return;
   const row = session.liveOutput.lastRow;
   const callId = row?.dataset.callId ?? "";
 
@@ -66,16 +59,15 @@ export const appendLiveOutputChunk = (chunk) => {
   for (let i = 1; i < parts.length; i++) {
     lo.lines.push(parts[i]);
   }
-  scheduleLiveOutput();
+  scheduleLiveOutput(session);
 };
 
-export const absorbAsToolBody = (callId) => {
-  const session = sess();
+export const absorbAsToolBody = (session, callId) => {
   if (!session) return false;
   if (callId) session.liveOutput.completed.add(callId);
   const lo = session.liveOutput.output;
   if (!lo || lo.callId !== callId) return false;
-  if (lo.rafPending) flushLiveOutput();
+  if (lo.rafPending) flushLiveOutput(session);
   const blockEl = lo.blockEl;
   blockEl.classList.add("final");
   const lines = lo.lines;
@@ -118,7 +110,6 @@ export const absorbAsToolBody = (callId) => {
  * Called by sse.js when agent:tool-started fires so appendLiveOutputChunk
  * can use a cached reference instead of scanning the entire stream DOM.
  */
-export const trackToolRow = (row) => {
-  const session = sess();
+export const trackToolRow = (session, row) => {
   if (session && row) session.liveOutput.lastRow = row;
 };

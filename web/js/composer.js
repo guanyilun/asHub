@@ -5,6 +5,7 @@ import { createUserBox } from "./actions.js";
 import { attachAutocomplete } from "./autocomplete.js";
 import { attachPromptAutocomplete } from "./prompt-manager.js";
 import { attachAtMentionAutocomplete } from "./at-mention.js";
+import { activeSession } from "./session-manager.js";
 
 const form = document.getElementById("form");
 const input = document.getElementById("query");
@@ -85,10 +86,11 @@ form?.addEventListener("submit", async (ev) => {
       (state.cwd ? `<span class="turn-cwd">${escape(state.cwd)}</span>` : "") +
       `<span class="turn-time">${new Date().toLocaleTimeString()}</span>` +
       `<span class="turn-line"></span>`;
-    appendAfterPending(optimisticSep);
+    const sv = activeSession.peek();
+    appendAfterPending(sv, optimisticSep);
     optimisticBox = createUserBox(query);
     optimisticBox.classList.add("pending");
-    appendAfterPending(optimisticBox);
+    appendAfterPending(sv, optimisticBox);
   }
   input.disabled = true;
   try {

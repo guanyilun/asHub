@@ -85,14 +85,15 @@ const relativeTime = (ts) => {
 };
 
 /**
- * Update the status indicator on the current session's tab.
- * Called from sse.js on processing-start / processing-done.
+ * Update the status indicator on a specific session's tab.
+ * Called from sse.js on processing-start / processing-done for the
+ * session that emitted the frame (which may be a background session).
  */
-export const setCurrentSessionStatus = (status) => {
-  const items = sessionList.querySelectorAll("li");
-  for (const li of items) {
-    if (li.classList.contains("current")) {
-      // Remove all status classes first
+export const setSessionStatus = (sid, status) => {
+  if (!sid) return;
+  for (const li of sessionList.querySelectorAll("li")) {
+    const href = li.querySelector("a")?.getAttribute("href") ?? "";
+    if (href === `/${sid}/`) {
       li.classList.remove("session-streaming", "session-unread");
       if (status) li.classList.add(status);
       return;
