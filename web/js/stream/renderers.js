@@ -50,14 +50,15 @@ export const renderUsage = (session) => {
   if (usageStrip) usageStrip.hidden = false;
 };
 
-export const renderTurnSep = (session) => {
+export const renderTurnSep = (session, ts) => {
   const cwd = session?.state.cwd ?? "";
   const sep = document.createElement("div");
   sep.className = "turn-sep";
+  const date = ts ? new Date(ts) : new Date();
   sep.innerHTML =
     `<span class="turn-line"></span>` +
     (cwd ? `<span class="turn-cwd">${escape(cwd)}</span>` : "") +
-    `<span class="turn-time">${new Date().toLocaleTimeString()}</span>` +
+    `<span class="turn-time">${date.toLocaleTimeString()}</span>` +
     `<span class="turn-line"></span>`;
   append(session, sep);
   return sep;

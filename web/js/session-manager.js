@@ -38,9 +38,10 @@ let es = null;
 let reopenScheduled = false;
 let lastSeenId = 0;
 
+const TAIL = { fresh: "50", ready: "0", resync: "all" };
 const buildSubsParam = () => {
   const parts = [];
-  for (const [id, replayed] of subState) parts.push(`${id}:${replayed ? 0 : 50}`);
+  for (const [id, status] of subState) parts.push(`${id}:${TAIL[status]}`);
   return parts.join(",");
 };
 
@@ -60,7 +61,7 @@ const reopen = () => {
   es = next;
   next.onopen = () => {
     globalConnState.value = "connected";
-    for (const id of subState.keys()) subState.set(id, true);
+    for (const id of subState.keys()) subState.set(id, "ready");
   };
   next.onerror = () => { globalConnState.value = "reconnecting"; };
   next.onmessage = (ev) => {
@@ -81,12 +82,18 @@ const scheduleReopen = () => {
 
 export const subscribeSession = (id) => {
   if (!id || subState.has(id)) return;
-  subState.set(id, false);
+  subState.set(id, "fresh");
   scheduleReopen();
 };
 
 export const unsubscribeSession = (id) => {
   if (subState.delete(id)) scheduleReopen();
+};
+
+export const resyncSession = (id) => {
+  if (!id || !subState.has(id)) return;
+  subState.set(id, "resync");
+  scheduleReopen();
 };
 
 export const preloadSession = (id) => {

@@ -1,5 +1,6 @@
 import { escape } from "./utils.js";
 import { currentSessionId, state } from "./state.js";
+import { activeSession } from "./session-manager.js";
 import { t } from "./i18n.js";
 
 // Atomic server-side rewind — keeps the snapshot→rewind gap race-free.
@@ -45,7 +46,7 @@ const deleteTurn = async (el) => {
   if (!confirm(t("delete.turn.confirm"))) return;
   try {
     await rewindToTurn(turn);
-    location.reload();
+    activeSession.peek()?.resync();
   } catch (e) {
     alert(t("delete.failed", { msg: e.message ?? e }));
   }
@@ -69,7 +70,7 @@ const regenTurn = async (box) => {
   } catch (e) {
     alert(t("regen.resubmit.failed", { msg: e.message ?? e }));
   }
-  location.reload();
+  activeSession.peek()?.resync();
 };
 
 const cancelEdit = (box) => {
@@ -125,7 +126,7 @@ const saveEdit = async (box) => {
   } catch (e) {
     alert(t("edit.resubmit.failed", { msg: e.message ?? e }));
   }
-  location.reload();
+  activeSession.peek()?.resync();
 };
 
 const editUserMsg = (box) => {

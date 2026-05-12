@@ -98,7 +98,7 @@ export const handlers = {
     if (this === activeSession.peek()) refreshFilesIfOpen();
   },
 
-  "agent:query"(p) {
+  "agent:query"(p, meta) {
     closeReply(this);
     finalizeThinking(this);
     finalizeLiveOutput(this);
@@ -116,7 +116,7 @@ export const handlers = {
       return;
     }
     this.state.currentTurn++;
-    renderTurnSep(this);
+    renderTurnSep(this, meta?.ts);
     const box = createUserBox(queryText);
     box.dataset.turn = String(this.state.currentTurn);
     append(this, box);

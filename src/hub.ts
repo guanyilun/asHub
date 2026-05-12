@@ -973,7 +973,8 @@ function openSseMulti(
 ): void {
   const subs = subsParam.split(",").map((s) => {
     const [id, tailStr] = s.split(":");
-    return { id: id ?? "", tail: Math.max(0, Number(tailStr ?? "50") || 0) };
+    const tail = tailStr === "all" ? Infinity : Math.max(0, Number(tailStr ?? "50") || 0);
+    return { id: id ?? "", tail };
   }).filter((s) => s.id);
 
   const headerLast = req.headers["last-event-id"];
@@ -1294,23 +1295,31 @@ async function truncateReplayAfterCompact(session: Session): Promise<void> {
     const snap = await session.bridge.snapshot();
     const messages = snap.messages as Array<{ role?: string }>;
     const remainingUserMsgs = messages.filter((m) => m?.role === "user").length;
-    let agentQueryCount = 0;
-    let truncateAt = session.replay.length;
-    for (let i = 0; i < session.replay.length; i++) {
-      const name = parseFrameName(session.replay[i]!);
-      if (name === "agent:query") {
-        if (agentQueryCount >= remainingUserMsgs) {
-          truncateAt = i;
-          break;
-        }
-        agentQueryCount++;
-      }
-    }
-    if (truncateAt < session.replay.length) {
-      session.replay.length = truncateAt;
-      void persistReplayFile(session.id, session.replay).catch(() => {});
-    }
+    truncateReplayToTurnCount(session, remainingUserMsgs);
   } catch {}
+}
+
+// Anchored on a known turn count rather than a post-compact snapshot.
+// Legacy sessions whose snapshot disagrees with the replay's agent:query
+// count would otherwise wipe surviving turns.
+function truncateReplayToTurnCount(session: Session, keepCount: number): void {
+  const replayQueryCount = session.replay.reduce(
+    (n, f) => n + (parseFrameName(f) === "agent:query" ? 1 : 0),
+    0,
+  );
+  if (keepCount > replayQueryCount) return;
+  let agentQueryCount = 0;
+  let truncateAt = session.replay.length;
+  for (let i = 0; i < session.replay.length; i++) {
+    if (parseFrameName(session.replay[i]!) === "agent:query") {
+      if (agentQueryCount >= keepCount) { truncateAt = i; break; }
+      agentQueryCount++;
+    }
+  }
+  if (truncateAt < session.replay.length) {
+    session.replay.length = truncateAt;
+    void persistReplayFile(session.id, session.replay).catch(() => {});
+  }
 }
 
 async function rewindContext(req: http.IncomingMessage, res: http.ServerResponse, session: Session): Promise<void> {
@@ -1364,13 +1373,14 @@ async function rewindToTurn(req: http.IncomingMessage, res: http.ServerResponse,
         seen++;
       }
     }
-    if (toIndex === -1) {
-      res.statusCode = 404;
-      res.end(`turn ${turn} not found in context`);
-      return;
+    let stats: unknown = null;
+    // Snapshot may report fewer user msgs than the replay has agent:query frames
+    // (legacy sessions, prior compacts). Truncate the replay regardless so the
+    // UI matches the kernel state.
+    if (toIndex !== -1) {
+      stats = await session.bridge.compact({ kind: "rewind", toIndex });
     }
-    const stats = await session.bridge.compact({ kind: "rewind", toIndex });
-    await truncateReplayAfterCompact(session);
+    truncateReplayToTurnCount(session, turn);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, stats }));
   } catch (err) {

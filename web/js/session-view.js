@@ -1,5 +1,5 @@
 import { handlers, onReplayDone, hidePageLoader, REPLAY_FLUSH_DELAY } from "./sse.js";
-import { registerSession, unregisterSession, subscribeSession, unsubscribeSession } from "./session-manager.js";
+import { registerSession, unregisterSession, subscribeSession, unsubscribeSession, resyncSession } from "./session-manager.js";
 import { STATE_DEFAULTS } from "./state.js";
 
 const parseId = () =>
@@ -10,6 +10,26 @@ const SCROLL_SLOP = 40;
 class SessionView extends HTMLElement {
   connectedCallback() {
     this.id = this.getAttribute("session-id") || parseId();
+    this.agentInfo = { name: "", model: "", provider: "" };
+    this.files = { expandedDirs: new Map() };
+    this.context = {
+      selected: new Set(),
+      currentMsgs: [],
+      currentGroups: [],
+      activeRoles: new Set(["all"]),
+    };
+    this.initStreamShell();
+
+    registerSession(this);
+    if (this.id) {
+      this.enterReplayMode();
+      subscribeSession(this.id);
+    } else {
+      hidePageLoader();
+    }
+  }
+
+  initStreamShell() {
     this.controller = new AbortController();
 
     const tpl = document.getElementById("session-view-tpl");
@@ -21,7 +41,6 @@ class SessionView extends HTMLElement {
     this.usageEl = this.querySelector(".terminal-usage");
 
     this.state = { ...STATE_DEFAULTS };
-    this.agentInfo = { name: "", model: "", provider: "" };
     this.reply = { current: null, text: "", pendingChunkRender: false, liveSegment: false };
     this.thinking = { el: null, block: null };
     this.toolGroup = { current: null };
@@ -34,14 +53,6 @@ class SessionView extends HTMLElement {
       exhausted: false,
       loadGeneration: 0,
     };
-    this.files = { expandedDirs: new Map() };
-    this.context = {
-      selected: new Set(),
-      currentMsgs: [],
-      currentGroups: [],
-      activeRoles: new Set(["all"]),
-    };
-
     this.replayFlushTimer = null;
 
     const ac = this.controller.signal;
@@ -58,14 +69,16 @@ class SessionView extends HTMLElement {
     this.querySelector(".stream-empty-prompt")?.addEventListener("click", () => {
       document.getElementById("query")?.focus();
     }, { signal: ac });
+  }
 
-    registerSession(this);
-    if (this.id) {
-      this.enterReplayMode();
-      subscribeSession(this.id);
-    } else {
-      hidePageLoader();
-    }
+  resync() {
+    if (!this.id) return;
+    if (this.replayFlushTimer) { clearTimeout(this.replayFlushTimer); this.replayFlushTimer = null; }
+    this.controller?.abort();
+    this.innerHTML = "";
+    this.initStreamShell();
+    this.enterReplayMode();
+    resyncSession(this.id);
   }
 
   disconnectedCallback() {
@@ -78,7 +91,7 @@ class SessionView extends HTMLElement {
   receiveFrame(frame) {
     const fn = handlers[frame?.meta?.name];
     if (fn) {
-      try { fn.call(this, frame.payload); }
+      try { fn.call(this, frame.payload, frame.meta); }
       catch (e) { console.error(frame.meta.name, e); }
     }
     this.scheduleReplayFlush();
