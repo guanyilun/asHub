@@ -725,21 +725,11 @@ async function generateTitleAsync(session: Session): Promise<void> {
   if (!query || session.userTitle) return;
 
   const providerName = session.provider || getSettings().defaultProvider;
-  if (!providerName) {
-    console.warn(`[hub] auto-title: no provider configured for ${session.id}`);
-    return;
-  }
+  if (!providerName) return;
   const resolved = resolveProvider(providerName);
-  if (!resolved?.apiKey) {
-    console.warn(`[hub] auto-title: provider "${providerName}" has no apiKey`);
-    return;
-  }
-
+  if (!resolved?.apiKey) return;
   const model = session.model || resolved.defaultModel;
-  if (!model) {
-    console.warn(`[hub] auto-title: no model resolved for provider "${providerName}"`);
-    return;
-  }
+  if (!model) return;
 
   const client = new LlmClient({
     apiKey: resolved.apiKey,
@@ -748,29 +738,19 @@ async function generateTitleAsync(session: Session): Promise<void> {
     appName: "asHub",
   });
 
-  try {
-    // Streaming — some OpenAI-compatible providers (e.g. zai coding API)
-    // return empty content for non-streaming /chat/completions calls.
-    const stream = await client.stream({
-      messages: [
-        { role: "system", content: "You are a title generator. Given a user's first message to an AI assistant, generate a concise, descriptive title (max 10 words, no quotes). Return ONLY the title text, nothing else." },
-        { role: "user", content: `Generate a short title for a conversation that starts with: "${query}"` },
-      ],
-      max_tokens: 80,
-    });
-    let raw = "";
-    for await (const chunk of stream) {
-      raw += chunk?.choices?.[0]?.delta?.content ?? "";
-    }
-    const title = raw.trim().replace(/^"|"$/g, "");
-    if (!title) {
-      console.warn(`[hub] auto-title: empty response from ${providerName}/${model} for ${session.id}`);
-      return;
-    }
-    if (!session.userTitle) await setSessionTitle(session, title);
-  } catch (err) {
-    console.warn(`[hub] auto-title failed for ${session.id} (provider=${providerName}, model=${model}):`, err instanceof Error ? err.message : err);
+  const stream = await client.stream({
+    messages: [
+      { role: "system", content: "You are a title generator. Given a user's first message to an AI assistant, generate a concise, descriptive title (max 10 words, no quotes). Return ONLY the title text, nothing else." },
+      { role: "user", content: `Generate a short title for a conversation that starts with: "${query}"` },
+    ],
+    max_tokens: 4096,
+  });
+  let raw = "";
+  for await (const chunk of stream) {
+    raw += chunk?.choices?.[0]?.delta?.content ?? "";
   }
+  const title = raw.trim().replace(/^"|"$/g, "");
+  if (title && !session.userTitle) await setSessionTitle(session, title);
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────
