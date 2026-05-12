@@ -25,7 +25,6 @@ import { createUserBox } from "./actions.js";
 import { updateSessionTitle, setCurrentSessionStatus } from "./sidebar.js";
 import { refreshFilesIfOpen } from "./files-panel.js";
 import { compactReasoning } from "./stream/compact.js";
-import { bindHandlers, setTruncationState } from "./infinite-scroll.js";
 
 const stream = document.getElementById("stream");
 const conn = document.getElementById("conn");
@@ -95,11 +94,6 @@ const exitReplayMode = () => {
   highlightWithin(stream);  // cheap no-op if no code blocks exist
   renderMathIn(stream);     // cheap no-op if no math placeholders exist
   forceScrollBottom();
-};
-
-/** Cancel any pending replay-flush timer (used by infinite-scroll). */
-export const cancelReplayFlush = () => {
-  if (replayFlushTimer) { clearTimeout(replayFlushTimer); replayFlushTimer = null; }
 };
 
 // Merge non-empty fields so a partial replay event doesn't blank known values.
@@ -346,16 +340,7 @@ const handlers = {
   "hub:replay-done": () => {
     if (state.replaying) exitReplayMode();
   },
-
-  // Hub sentinel: replay was truncated because the session is large.
-  // The client will lazy-load older frames via infinite-scroll.
-  "hub:replay-truncated": (p) => {
-    setTruncationState(p?.beforeId ?? null, p?.total ?? 0);
-  },
 };
-
-// Wire infinite-scroll to the handler table so it can process older frames.
-bindHandlers(handlers);
 
 const connect = (signal) => {
   const es = new EventSource(eventsUrl);

@@ -36,17 +36,6 @@ stream.addEventListener("scroll", () => {
 });
 pill?.addEventListener("click", scrollToBottom);
 
-/** Save/restore for infinite-scroll replay (prevents scroll-state corruption). */
-export const getScrollState = () => ({
-  stickToBottom: sess()?.scroll.stickToBottom ?? true,
-  pillHidden: pill?.hidden ?? true,
-});
-export const setScrollState = (s) => {
-  const session = sess();
-  if (session) session.scroll.stickToBottom = s.stickToBottom ?? true;
-  if (pill) pill.hidden = s.pillHidden ?? true;
-};
-
 export const maybeScroll = () => {
   if (state.replaying) return;
   if (sess()?.scroll.stickToBottom ?? true) {

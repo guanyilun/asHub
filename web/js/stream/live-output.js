@@ -122,22 +122,3 @@ export const trackToolRow = (row) => {
   const session = sess();
   if (session && row) session.liveOutput.lastRow = row;
 };
-
-/** Save/restore for infinite-scroll replay processing */
-export const getLiveOutputState = () => {
-  const session = sess();
-  if (!session) return { lastToolRow: null, liveToolOutput: null, completedTools: new Set() };
-  return {
-    lastToolRow: session.liveOutput.lastRow,
-    liveToolOutput: session.liveOutput.output,
-    completedTools: new Set(session.liveOutput.completed),
-  };
-};
-export const setLiveOutputState = (s) => {
-  const session = sess();
-  if (!session) return;
-  session.liveOutput.lastRow = s.lastToolRow ?? null;
-  session.liveOutput.output = s.liveToolOutput ?? null;
-  session.liveOutput.completed.clear();
-  if (s.completedTools) for (const id of s.completedTools) session.liveOutput.completed.add(id);
-};

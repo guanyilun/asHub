@@ -8,18 +8,6 @@ const sess = () => activeSession.peek();
 export const hasThinkingDots = () => (sess()?.thinking.el ?? null) != null;
 export const hasThinkingBlock = () => (sess()?.thinking.block ?? null) != null;
 
-/** Save/restore for infinite-scroll replay processing */
-export const getThinkingState = () => {
-  const t = sess()?.thinking;
-  return { thinkingEl: t?.el ?? null, thinkingBlock: t?.block ?? null };
-};
-export const setThinkingState = (s) => {
-  const t = sess()?.thinking;
-  if (!t) return;
-  t.el = s.thinkingEl ?? null;
-  t.block = s.thinkingBlock ?? null;
-};
-
 export const showThinking = () => {
   const session = sess();
   if (!session || session.thinking.el) return;
@@ -44,12 +32,8 @@ export const hideThinking = () => {
   session.thinking.el = null;
 };
 
-/**
- * Remove any `.thinking` dots in the stream that aren't the live `thinkingEl`.
- * Orphans can be left by infinite-scroll's older-frame replay or by a server
- * stream that ended mid-turn — both routes can leave DOM nodes that no module
- * reference points to, so hideThinking() can no longer clean them.
- */
+// Remove `.thinking` dots that aren't the live thinkingEl — orphans can be
+// left when a server stream ends mid-turn, escaping hideThinking() cleanup.
 export const sweepOrphanThinking = (stream) => {
   if (!stream) return;
   const live = sess()?.thinking.el ?? null;

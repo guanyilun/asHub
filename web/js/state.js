@@ -3,7 +3,7 @@ import { signal } from "../vendor/signals-core.js";
 import { activeSession } from "./session-manager.js";
 
 export const sessionId = (location.pathname.match(/^\/([0-9a-f]{4,32})\/?$/) ?? [])[1] ?? "";
-export const eventsUrl = `/${sessionId}/events?tail=50`;
+export const eventsUrl = `/${sessionId}/events`;
 export const submitUrl = `/${sessionId}/submit`;
 
 export const homeDir = signal("");

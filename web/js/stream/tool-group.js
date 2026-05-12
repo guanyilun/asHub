@@ -31,21 +31,6 @@ export const insertStreamNode = (node) => {
 
 const toolCount = (g) => g.querySelectorAll(".tool-row").length;
 
-const rebuildGroupState = (g) => {
-  const head = g.querySelector(".tool-group-head");
-  const body = g.querySelector(".tool-group-body");
-  if (head && body) groupState.set(g, { head, body });
-};
-
-/** Save/restore for infinite-scroll replay processing */
-export const getToolGroupState = () => ({ currentToolGroup: sess()?.toolGroup.current ?? null });
-export const setToolGroupState = (s) => {
-  const session = sess();
-  if (session) session.toolGroup.current = s.currentToolGroup ?? null;
-  // Rebuild WeakMap from DOM for restored tool-group elements
-  document.querySelectorAll(".tool-group").forEach(rebuildGroupState);
-};
-
 const updateToolGroupHead = (g) => {
   const { head } = groupState.get(g);
   head.textContent = `🔧 ${t("n.tools", { n: toolCount(g) })}`;

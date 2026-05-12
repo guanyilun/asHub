@@ -29,25 +29,6 @@ export const hasReply = () => (sess()?.reply.current ?? null) != null;
 export const sawLiveSegment = () => sess()?.reply.liveSegment ?? false;
 export const startNewSegment = () => { const r = sess()?.reply; if (r) r.liveSegment = false; };
 
-/** Save/restore for infinite-scroll replay processing */
-export const getReplyState = () => {
-  const r = sess()?.reply;
-  return {
-    currentReply: r?.current ?? null,
-    currentReplyText: r?.text ?? "",
-    pendingChunkRender: r?.pendingChunkRender ?? false,
-    liveSegment: r?.liveSegment ?? false,
-  };
-};
-export const setReplyState = (s) => {
-  const r = sess()?.reply;
-  if (!r) return;
-  r.current = s.currentReply ?? null;
-  r.text = s.currentReplyText ?? "";
-  r.pendingChunkRender = s.pendingChunkRender ?? false;
-  r.liveSegment = s.liveSegment ?? false;
-};
-
 export const appendReplyChunk = (delta) => {
   if (!delta) return;
   const session = sess();
