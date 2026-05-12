@@ -31,17 +31,19 @@ effect(() => {
   for (const [id, el] of sessions) el.hidden = id !== active;
 });
 
-const host = () => document.querySelector("session-view")?.parentElement ?? document.body;
-
 // Construct a hidden <session-view> next to the active one. The element's
 // connectedCallback opens its own EventSource and registers itself.
 export const preloadSession = (id) => {
   if (!id) throw new Error("preloadSession: id required");
   if (sessions.has(id)) return sessions.get(id);
+  const existing = document.querySelector("session-view");
+  const parent = existing?.parentElement ?? document.body;
   const el = document.createElement("session-view");
   el.setAttribute("session-id", id);
   el.hidden = true;
-  host().appendChild(el);
+  // Insert after the first session-view so the trailing <form> stays at the
+  // bottom of the flex column.
+  parent.insertBefore(el, existing ? existing.nextSibling : null);
   return el;
 };
 
