@@ -2,6 +2,8 @@ import { currentSessionId } from "./state.js";
 import { setCtxOpen } from "./context-panel.js";
 import { setConfigOpen } from "./config-panel.js";
 import { t } from "./i18n.js";
+import { activeSession } from "./session-manager.js";
+import { effect } from "../vendor/signals-core.js";
 
 const app = document.querySelector(".app");
 const filesPanel = document.getElementById("files-panel");
@@ -17,7 +19,6 @@ const LS_FILES = "ash.files-open";
 // Set initial text (JS manages this dynamically, so no data-i18n in HTML)
 if (filesEmpty) filesEmpty.textContent = t("files.loading");
 
-import { activeSession } from "./session-manager.js";
 const expandedDirs = () => activeSession.peek()?.files.expandedDirs ?? new Map();
 
 const showFilesEmpty = (msg, sub) => {
@@ -241,3 +242,9 @@ document.addEventListener("langchange", () => {
 export const refreshFilesIfOpen = () => {
   if (filesPanel && !filesPanel.hasAttribute("hidden")) fetchFiles();
 };
+
+// Re-fetch when the active session changes (Phase 3 SPA switching).
+effect(() => {
+  activeSession.value;
+  refreshFilesIfOpen();
+});

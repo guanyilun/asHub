@@ -1,4 +1,4 @@
-import { sessionId, currentSessionId, state, queryHistory } from "./state.js";
+import { currentSessionId, state, queryHistory } from "./state.js";
 import { escape } from "./utils.js";
 import { appendAfterPending } from "./stream/tool-group.js";
 import { createUserBox } from "./actions.js";
@@ -6,15 +6,17 @@ import { attachAutocomplete } from "./autocomplete.js";
 import { attachPromptAutocomplete } from "./prompt-manager.js";
 import { attachAtMentionAutocomplete } from "./at-mention.js";
 import { activeSession } from "./session-manager.js";
+import { effect } from "../vendor/signals-core.js";
 
 const form = document.getElementById("form");
 const input = document.getElementById("query");
 const cancelBtn = document.getElementById("cancel-turn");
 
-if (!sessionId) {
-  if (input) input.disabled = true;
-  if (form) form.style.opacity = "0.5";
-}
+effect(() => {
+  const hasSession = !!activeSession.value;
+  if (input) input.disabled = !hasSession;
+  if (form) form.style.opacity = hasSession ? "" : "0.5";
+});
 
 const submitSlash = async (raw) => {
   const trimmed = raw.trim();

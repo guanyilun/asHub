@@ -1,6 +1,7 @@
 import { escape } from "./utils.js";
-import { sessionId, state, homeDir, headerTopic, headerCwd } from "./state.js";
+import { state, homeDir, headerTopic, headerCwd } from "./state.js";
 import { effect } from "../vendor/signals-core.js";
+import { activeSessionId, switchTo, spaEnabled, sessions } from "./session-manager.js";
 import { attachAutocomplete } from "./autocomplete.js";
 import { t } from "./i18n.js";
 
@@ -143,7 +144,8 @@ const startTitleEdit = (li, instanceId, currentTitle) => {
 
 const renderSessionItem = (s) => {
   const li = document.createElement("li");
-  const isCurrent = s.instanceId === sessionId;
+  li.dataset.sessionId = s.instanceId;
+  const isCurrent = s.instanceId === activeSessionId.peek();
   const hasTitle = s.title && s.title !== s.instanceId;
   if (isCurrent) {
     li.className = "current";
@@ -155,15 +157,18 @@ const renderSessionItem = (s) => {
 
   const a = document.createElement("a");
   a.href = `/${s.instanceId}/`;
-  if (isCurrent) {
-    a.addEventListener("click", (ev) => ev.preventDefault());
-  } else {
-    a.addEventListener("click", (ev) => {
-      // Skip exit transition for new-tab/window opens
-      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+  a.addEventListener("click", (ev) => {
+    // Cmd/Ctrl/Shift-click → browser default (new tab/window).
+    if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    if (spaEnabled()) {
+      ev.preventDefault();
+      switchTo(s.instanceId);
+    } else if (s.instanceId !== activeSessionId.peek()) {
       document.body.classList.add("exiting");
-    });
-  }
+    } else {
+      ev.preventDefault();
+    }
+  });
   const title = escape(hasTitle ? s.title : t("untitled"));
   const cwdText = s.cwd ? `<span class="session-cwd" title="${escape(s.cwd)}">${escape(shortenCwd(s.cwd))}</span>` : "";
   const timeText = s.startedAt ? `<span class="session-time" title="${escape(new Date(s.startedAt).toLocaleString())}">${escape(relativeTime(s.startedAt))}</span>` : "";
@@ -196,9 +201,10 @@ const renderSessionItem = (s) => {
     try {
       await fetch(`/${s.instanceId}/`, { method: "DELETE" });
     } catch {}
-    if (s.instanceId === sessionId) {
+    if (s.instanceId === activeSessionId.peek()) {
       window.location.href = "/";
     } else {
+      sessions.get(s.instanceId)?.remove();
       renderSessions();
     }
   });
@@ -253,6 +259,23 @@ const renderSessions = async () => {
 renderSessions();
 setInterval(renderSessions, 5000);
 
+// Toggle the .current class and sync header info on active-session change.
+effect(() => {
+  const active = activeSessionId.value;
+  let activeLi = null;
+  for (const li of sessionList.querySelectorAll("li[data-session-id]")) {
+    const match = li.dataset.sessionId === active;
+    li.classList.toggle("current", match);
+    if (match) activeLi = li;
+  }
+  if (activeLi) {
+    const titleSpan = activeLi.querySelector(".session-title");
+    const cwdSpan = activeLi.querySelector(".session-cwd");
+    setSessionTopic(titleSpan?.textContent && titleSpan.textContent !== t("untitled") ? titleSpan.textContent : "");
+    setSessionCwd(cwdSpan?.title ?? "");
+  }
+});
+
 // Clean up exit transition class on bfcache restore (Back button)
 window.addEventListener("pageshow", (ev) => {
   if (ev.persisted) document.body.classList.remove("exiting");
@@ -267,7 +290,7 @@ document.addEventListener("langchange", () => {
 // Inline update — a full re-render would clobber an in-progress title edit.
 export const updateSessionTitle = (sid, title) => {
   if (!title) return;
-  if (sid === sessionId) setSessionTopic(title);
+  if (sid === activeSessionId.peek()) setSessionTopic(title);
   const items = sessionList.querySelectorAll("li");
   for (const li of items) {
     const a = li.querySelector("a");

@@ -1,6 +1,8 @@
 import { escape } from "./utils.js";
 import { currentSessionId } from "./state.js";
 import { setFilesOpen } from "./files-panel.js";
+import { activeSession } from "./session-manager.js";
+import { effect } from "../vendor/signals-core.js";
 import { setConfigOpen } from "./config-panel.js";
 import { t } from "./i18n.js";
 
@@ -69,8 +71,6 @@ const messageText = (m) => {
   if (m?.role === "tool") return String(m.content ?? "");
   return JSON.stringify(m ?? {});
 };
-
-import { activeSession } from "./session-manager.js";
 
 const ctx = () => activeSession.peek()?.context;
 const selectedSet = () => ctx()?.selected ?? new Set();
@@ -280,6 +280,12 @@ ctxClose?.addEventListener("click", () => setCtxOpen(false));
 
 // Refresh context panel content when language changes while panel is open
 document.addEventListener("langchange", () => {
+  if (ctxPanel && !ctxPanel.hasAttribute("hidden")) renderContext();
+});
+
+// Re-render when the active session changes (Phase 3 SPA switching).
+effect(() => {
+  activeSession.value;
   if (ctxPanel && !ctxPanel.hasAttribute("hidden")) renderContext();
 });
 
