@@ -24,15 +24,65 @@ export const spaEnabled = () => {
   catch { return true; }
 };
 
-// Show only the active <session-view>; the rest stay mounted (live SSE,
-// rendering into hidden DOM) until evicted.
 effect(() => {
   const active = activeSessionId.value;
   for (const [id, el] of sessions) el.hidden = id !== active;
 });
 
-// Construct a hidden <session-view> next to the active one. The element's
-// connectedCallback opens its own EventSource and registers itself.
+export const globalConnState = signal(
+  /** @type {"connecting"|"connected"|"reconnecting"|"nosession"} */ ("nosession"),
+);
+
+const subState = new Map();
+let es = null;
+let reopenScheduled = false;
+
+const buildSubsParam = () => {
+  const parts = [];
+  for (const [id, replayed] of subState) parts.push(`${id}:${replayed ? 0 : 50}`);
+  return parts.join(",");
+};
+
+const reopen = () => {
+  reopenScheduled = false;
+  es?.close();
+  es = null;
+  if (subState.size === 0) {
+    globalConnState.value = "nosession";
+    return;
+  }
+  globalConnState.value = "connecting";
+  const next = new EventSource(`/events?subs=${encodeURIComponent(buildSubsParam())}`);
+  es = next;
+  next.onopen = () => {
+    globalConnState.value = "connected";
+    for (const id of subState.keys()) subState.set(id, true);
+  };
+  next.onerror = () => { globalConnState.value = "reconnecting"; };
+  next.onmessage = (ev) => {
+    let frame;
+    try { frame = JSON.parse(ev.data); } catch { return; }
+    sessions.get(frame?.meta?.source)?.receiveFrame?.(frame);
+  };
+};
+
+// Coalesce rapid subscribe/unsubscribe calls into one reopen per tick.
+const scheduleReopen = () => {
+  if (reopenScheduled) return;
+  reopenScheduled = true;
+  queueMicrotask(reopen);
+};
+
+export const subscribeSession = (id) => {
+  if (!id || subState.has(id)) return;
+  subState.set(id, false);
+  scheduleReopen();
+};
+
+export const unsubscribeSession = (id) => {
+  if (subState.delete(id)) scheduleReopen();
+};
+
 export const preloadSession = (id) => {
   if (!id) throw new Error("preloadSession: id required");
   if (sessions.has(id)) return sessions.get(id);

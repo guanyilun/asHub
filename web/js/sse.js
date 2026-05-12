@@ -25,7 +25,7 @@ import { createUserBox } from "./actions.js";
 import { updateSessionTitle, setSessionStatus } from "./sidebar.js";
 import { refreshFilesIfOpen } from "./files-panel.js";
 import { compactReasoning } from "./stream/compact.js";
-import { activeSession } from "./session-manager.js";
+import { activeSession, globalConnState } from "./session-manager.js";
 
 // Shared page chrome — reflects the active session, not whatever frame just arrived.
 const conn = document.getElementById("conn");
@@ -52,7 +52,7 @@ export const hidePageLoader = () => {
 };
 
 effect(() => {
-  const cs = activeSession.value?.connState.value ?? "nosession";
+  const cs = globalConnState.value;
   if (conn) switch (cs) {
     case "connected":     conn.textContent = ""; break;
     case "connecting":    conn.textContent = t("connecting"); break;

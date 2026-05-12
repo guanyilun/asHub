@@ -303,6 +303,10 @@ export function startHub(opts: HubOpts): http.Server {
     if (req.method === "POST" && url === "/api/config/reload") return reloadConfig(res);
     if (req.method === "GET" && url === "/api/version") return getVersion(res);
     if (req.method === "GET" && url === "/sessions") return listSessions(res, sessions);
+    if (req.method === "GET" && url.startsWith("/events")) {
+      const params = new URLSearchParams(url.split("?")[1] ?? "");
+      return openSseMulti(req, res, sessions, params.get("subs") ?? "");
+    }
     if (req.method === "GET" && url.startsWith("/fs")) {
       const params = new URLSearchParams(url.split("?")[1] ?? "");
       return listDirs(res, params.get("prefix") ?? "");
@@ -318,7 +322,6 @@ export function startHub(opts: HubOpts): http.Server {
       const session = sessions.get(id);
       if (!session) { res.statusCode = 404; res.end("no session"); return; }
 
-      if (rest === "/events") return openSse(req, res, session);
       if (req.method === "POST" && rest === "/submit") return submit(req, res, session);
       if (req.method === "POST" && rest === "/command") return execCommand(req, res, session);
       if (req.method === "POST" && rest === "/title") return updateTitle(req, res, session);
@@ -949,31 +952,48 @@ async function generateTitle(req: http.IncomingMessage, res: http.ServerResponse
   );
 }
 
-function openSse(req: http.IncomingMessage, res: http.ServerResponse, session: Session): void {
-  // User is viewing this session — clear unread indicator.
-  session.hasUnread = false;
+// subs=A:50,B:0 — each entry is sessionId:tail. tail>0 replays the last
+// `tail` frames; tail=0 attaches for live frames only.
+function openSseMulti(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  sessions: Map<string, Session>,
+  subsParam: string,
+): void {
+  const subs = subsParam.split(",").map((s) => {
+    const [id, tailStr] = s.split(":");
+    return { id: id ?? "", tail: Math.max(0, Number(tailStr ?? "50") || 0) };
+  }).filter((s) => s.id);
+
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
   });
-  res.write(`: connected ${session.id}\n\n`);
+  res.write(`: connected ${subs.length}\n\n`);
 
-  for (const line of session.replay) {
-    try { res.write(line); } catch { return; }
+  for (const { id, tail } of subs) {
+    const session = sessions.get(id);
+    if (!session) continue;
+    if (tail > 0) {
+      session.hasUnread = false;
+      for (const line of session.replay.slice(-tail)) {
+        try { res.write(line); } catch { return; }
+      }
+      if (session.lastAgentInfo) {
+        const meta = { source: id, ts: Date.now(), id: `hub:${id}:reemit:agent:info`, name: "agent:info" };
+        try { res.write(`data: ${JSON.stringify({ meta, payload: session.lastAgentInfo })}\n\n`); } catch { return; }
+      }
+      const doneMeta = { source: id, ts: Date.now(), name: "hub:replay-done" };
+      try { res.write(`data: ${JSON.stringify({ meta: doneMeta })}\n\n`); } catch { return; }
+    }
+    session.sseClients.add(res);
   }
 
-  if (session.lastAgentInfo) {
-    const meta = { source: session.id, ts: Date.now(), id: `hub:${session.id}:reemit:agent:info`, name: "agent:info" };
-    try { res.write(`data: ${JSON.stringify({ meta, payload: session.lastAgentInfo })}\n\n`); } catch { return; }
-  }
-
-  // Sentinel so the client knows replay is done and can exit batching
-  // mode even when live events arrive immediately after (active turn).
-  res.write(`data: {"meta":{"name":"hub:replay-done","ts":${Date.now()}}}\n\n`);
-  session.sseClients.add(res);
-  req.on("close", () => session.sseClients.delete(res));
+  req.on("close", () => {
+    for (const { id } of subs) sessions.get(id)?.sseClients.delete(res);
+  });
 }
 
 async function submit(req: http.IncomingMessage, res: http.ServerResponse, session: Session): Promise<void> {
