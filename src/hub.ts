@@ -749,15 +749,25 @@ async function generateTitleAsync(session: Session): Promise<void> {
   });
 
   try {
-    const raw = await client.complete({
+    // Streaming — some OpenAI-compatible providers (e.g. zai coding API)
+    // return empty content for non-streaming /chat/completions calls.
+    const stream = await client.stream({
       messages: [
         { role: "system", content: "You are a title generator. Given a user's first message to an AI assistant, generate a concise, descriptive title (max 10 words, no quotes). Return ONLY the title text, nothing else." },
         { role: "user", content: `Generate a short title for a conversation that starts with: "${query}"` },
       ],
       max_tokens: 80,
     });
-    const title = raw?.trim().replace(/^"|"$/g, "") ?? "";
-    if (title && !session.userTitle) await setSessionTitle(session, title);
+    let raw = "";
+    for await (const chunk of stream) {
+      raw += chunk?.choices?.[0]?.delta?.content ?? "";
+    }
+    const title = raw.trim().replace(/^"|"$/g, "");
+    if (!title) {
+      console.warn(`[hub] auto-title: empty response from ${providerName}/${model} for ${session.id}`);
+      return;
+    }
+    if (!session.userTitle) await setSessionTitle(session, title);
   } catch (err) {
     console.warn(`[hub] auto-title failed for ${session.id} (provider=${providerName}, model=${model}):`, err instanceof Error ? err.message : err);
   }
