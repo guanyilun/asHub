@@ -50,13 +50,6 @@ const hidePageLoader = () => {
   }, 200);
 };
 
-// Safety fallback: hide loader after 8s if SSE never connects
-setTimeout(() => {
-  if (pageLoader && !pageLoader.classList.contains("hidden")) {
-    hidePageLoader();
-  }
-}, 8000);
-
 const connState = signal(/** @type {"connecting"|"connected"|"reconnecting"|"nosession"} */ ("connecting"));
 
 effect(() => {
@@ -361,8 +354,9 @@ const handlers = {
 // Wire infinite-scroll to the handler table so it can process older frames.
 bindHandlers(handlers);
 
-const connect = () => {
+const connect = (signal) => {
   const es = new EventSource(eventsUrl);
+  signal?.addEventListener("abort", () => es.close(), { once: true });
   es.onopen = () => {
     connState.value = "connected";
     dot.classList.remove("stale");
@@ -390,10 +384,19 @@ const connect = () => {
   };
 };
 
-if (sessionId) {
-  connect();
-} else {
-  hidePageLoader();
-  connState.value = "nosession";
-  dot.classList.add("stale");
-}
+export const bootSession = (signal) => {
+  const timer = setTimeout(() => {
+    if (pageLoader && !pageLoader.classList.contains("hidden")) {
+      hidePageLoader();
+    }
+  }, 8000);
+  signal?.addEventListener("abort", () => clearTimeout(timer), { once: true });
+
+  if (sessionId) {
+    connect(signal);
+  } else {
+    hidePageLoader();
+    connState.value = "nosession";
+    dot.classList.add("stale");
+  }
+};
