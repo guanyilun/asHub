@@ -577,7 +577,6 @@ nav.scrolled {
   font-family: var(--font-mono, monospace);
   font-size: 0.9em;
 }
-
 .agent-stats {
   color: var(--text-dim);
   font-size: 0.8rem;
