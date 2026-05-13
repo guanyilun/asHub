@@ -11,13 +11,25 @@ const groupState = new WeakMap();
  * New content from the current turn must be inserted BEFORE the first
  * pending box — otherwise auto-scroll keeps jumping past it and the
  * queued messages scroll out of view.
+ *
+ * Each queued message is a pair: a .turn-sep followed by a .agent-box.pending.
+ * We walk back from the first pending box past any preceding turn-seps so
+ * that reply chunks are inserted before the entire queued-message group,
+ * keeping the timestamp and user message together.
  */
 export const insertStreamNode = (session, node) => {
   const stream = session?.streamEl;
   if (!stream) return;
   const firstPending = stream.querySelector(".agent-box.pending");
   if (firstPending) {
-    stream.insertBefore(node, firstPending);
+    // Walk back past turn-sep(s) that belong to the same queued-message group.
+    let insertBefore = firstPending;
+    let prev = firstPending.previousElementSibling;
+    while (prev && prev.classList.contains("turn-sep")) {
+      insertBefore = prev;
+      prev = prev.previousElementSibling;
+    }
+    stream.insertBefore(node, insertBefore);
   } else {
     stream.appendChild(node);
   }

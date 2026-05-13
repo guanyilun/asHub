@@ -632,8 +632,16 @@ function routeEvent(session: Session, e: BusEvent): void {
     session.isProcessing = true;
     session.hasUnread = false;
     const query = (e.payload as { query?: string })?.query ?? "";
-    pushFrame(session, "agent:query", sseFrame({ ...meta, name: "agent:query" }, { query }));
-    pushFrame(session, "agent:processing-start", sseFrame({ ...meta, name: "agent:processing-start" }, {}));
+    // Generate fresh meta for each frame so they don't share the same
+    // id / ts — mirroring submit()'s non-queued path.
+    const makeMeta = (name: string) => ({
+      source: session.id,
+      ts: Date.now(),
+      id: `hub:${session.id}:${name}`,
+      name,
+    });
+    pushFrame(session, "agent:query", sseFrame(makeMeta("agent:query"), { query }));
+    pushFrame(session, "agent:processing-start", sseFrame(makeMeta("agent:processing-start"), {}));
     return;
   }
 
@@ -642,7 +650,14 @@ function routeEvent(session: Session, e: BusEvent): void {
     session.isProcessing = false;
     // Only mark unread if no one is watching (no active SSE client).
     session.hasUnread = session.sseClients.size === 0;
-    pushFrame(session, "agent:processing-done", sseFrame({ ...meta, name: "agent:processing-done" }, {}));
+    // Generate a fresh meta so the frame carries its own ts/id — mirroring
+    // the non-queued path in submit().
+    pushFrame(session, "agent:processing-done", sseFrame({
+      source: session.id,
+      ts: Date.now(),
+      id: `hub:${session.id}:agent:processing-done`,
+      name: "agent:processing-done",
+    }, {}));
     _flushBuf(session.id);
     // Mirror submit()'s .then() handler for queued turns: persist messages
     // so restarted sessions restore their state, and auto-generate a title

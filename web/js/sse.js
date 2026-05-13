@@ -3,7 +3,7 @@ import { setBusy } from "./state.js";
 import { effect } from "../vendor/signals-core.js";
 import { t } from "./i18n.js";
 import { maybeScroll, forceScrollBottom } from "./stream/scroll.js";
-import { append, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
+import { append, appendAfterPending, appendToGroup, bumpToolCount } from "./stream/tool-group.js";
 import {
   renderUsage, hideUsage, renderTurnSep, renderErrorCard,
   renderDiffBlock, renderToolBody, buildToolRow, renderPromptRow,
@@ -98,6 +98,43 @@ export const handlers = {
     if (this === activeSession.peek()) refreshFilesIfOpen();
   },
 
+  // Queue-lifecycle: when the hub enqueues a message (agent is busy),
+  // it pushes agent:queued with the user's submission timestamp.  We
+  // render the same optimistic separator + pending box that composer.js
+  // does for live viewers, so that replay/reconnect renders queued turns
+  // with the correct submission timestamp rather than the dequeue time.
+  //
+  // We use appendAfterPending so queued messages stack in submission
+  // order at the end rather than inverting during replay.
+  "agent:queued"(p, meta) {
+    const queryText = p?.query ?? "";
+    if (!queryText) return;
+    // Don't create duplicate optimistic boxes — composer.js may have
+    // already done so for live viewers.
+    const existing = this.streamEl?.querySelector(
+      `.agent-box.pending[data-queued="${CSS.escape(queryText)}"]`
+    ) ?? Array.from(this.streamEl?.querySelectorAll(".agent-box.pending") ?? [])
+      .find((pb) => pb._queryText === queryText);
+    if (existing) return;
+    // Build turn-separator manually (same as renderTurnSep) but append
+    // after any pending boxes to preserve submission order.
+    const cwd = this.state.cwd ?? "";
+    const date = meta?.ts ? new Date(meta.ts) : new Date();
+    const sep = document.createElement("div");
+    sep.className = "turn-sep";
+    sep.innerHTML =
+      `<span class="turn-line"></span>` +
+      (cwd ? `<span class="turn-cwd">${escape(cwd)}</span>` : "") +
+      `<span class="turn-time">${date.toLocaleTimeString()}</span>` +
+      `<span class="turn-line"></span>`;
+    appendAfterPending(this, sep);
+    const box = createUserBox(queryText);
+    box.classList.add("pending");
+    box.dataset.queued = queryText;
+    box._queryText = queryText;
+    appendAfterPending(this, box);
+  },
+
   "agent:query"(p, meta) {
     closeReply(this);
     finalizeThinking(this);
@@ -105,14 +142,19 @@ export const handlers = {
     resetCompletedTools(this);
     startNewSegment(this);
     const queryText = p?.query ?? "";
-    let matched = null;
-    for (const pb of this.streamEl?.querySelectorAll(".agent-box.pending") ?? []) {
-      if (pb._queryText === queryText) { matched = pb; break; }
+    // Match optimistic boxes: first by data-queued (replay), then by
+    // _queryText (composer.js live path).
+    let matched = this.streamEl?.querySelector(`.agent-box.pending[data-queued="${CSS.escape(queryText)}"]`) ?? null;
+    if (!matched) {
+      for (const pb of this.streamEl?.querySelectorAll(".agent-box.pending") ?? []) {
+        if (pb._queryText === queryText) { matched = pb; break; }
+      }
     }
     if (matched) {
       this.state.currentTurn++;
       matched.dataset.turn = String(this.state.currentTurn);
       matched.classList.remove("pending");
+      delete matched.dataset.queued;
       return;
     }
     this.state.currentTurn++;
@@ -186,7 +228,10 @@ export const handlers = {
     hideThinking(this);
     finalizeThinking(this);
     finalizeLiveOutput(this);
-    this.streamEl?.querySelectorAll(".agent-box.pending").forEach((el) => el.remove());
+    this.streamEl?.querySelectorAll(".agent-box.pending").forEach((el) => {
+      delete el.dataset.queued;
+      el.remove();
+    });
     setBusy(this, false);
     if (!this.state.replaying) setSessionStatus(this.id, "");
     if (!this.state.replaying && this.streamEl) compactReasoning(this.streamEl);

@@ -92,6 +92,7 @@ form?.addEventListener("submit", async (ev) => {
     appendAfterPending(sv, optimisticSep);
     optimisticBox = createUserBox(query);
     optimisticBox.classList.add("pending");
+    optimisticBox.dataset.queued = query;
     appendAfterPending(sv, optimisticBox);
   }
   input.disabled = true;
