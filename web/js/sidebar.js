@@ -1,5 +1,7 @@
 import { escape } from "./utils.js";
-import { sessionId, state } from "./state.js";
+import { state, homeDir, headerTopic, headerCwd } from "./state.js";
+import { effect } from "../vendor/signals-core.js";
+import { activeSessionId, switchTo, spaEnabled, sessions } from "./session-manager.js";
 import { attachAutocomplete } from "./autocomplete.js";
 import { t } from "./i18n.js";
 
@@ -11,23 +13,30 @@ const newCwd = document.getElementById("new-session-cwd");
 const newErr = document.getElementById("new-session-err");
 const newBtn = document.getElementById("new-session");
 
-export const setSessionTopic = (title) => {
-  if (!sessionTopic) return;
-  sessionTopic.textContent = title ?? "";
-  sessionTopic.dataset.empty = t("untitled");
-};
+export const setSessionTopic = (title) => { headerTopic.value = title ?? ""; };
+export const setSessionCwd = (cwd) => { headerCwd.value = cwd ?? ""; };
 
 const homeRelativeCwd = (cwd) => {
   if (!cwd) return "";
-  if (state.homeDir && cwd.startsWith(state.homeDir)) return "~" + cwd.slice(state.homeDir.length);
+  const home = homeDir.value;
+  if (home && cwd.startsWith(home)) return "~" + cwd.slice(home.length);
   return cwd;
 };
 
-export const setSessionCwd = (cwd) => {
-  if (!sessionCwdMeta) return;
-  sessionCwdMeta.textContent = homeRelativeCwd(cwd);
-  if (cwd) sessionCwdMeta.title = cwd;
-};
+if (sessionTopic) {
+  effect(() => {
+    sessionTopic.textContent = headerTopic.value;
+    sessionTopic.dataset.empty = t("untitled");
+  });
+}
+
+if (sessionCwdMeta) {
+  effect(() => {
+    const cwd = headerCwd.value;
+    sessionCwdMeta.textContent = homeRelativeCwd(cwd);
+    if (cwd) sessionCwdMeta.title = cwd;
+  });
+}
 
 const LS_LAST_CWD = "ash.last-cwd";
 
@@ -36,7 +45,8 @@ let sessionsHash = "";
 const shortenCwd = (cwd) => {
   if (!cwd) return "";
   let path = cwd;
-  if (state.homeDir && path.startsWith(state.homeDir)) path = "~" + path.slice(state.homeDir.length);
+  const home = homeDir.value;
+  if (home && path.startsWith(home)) path = "~" + path.slice(home.length);
   const parts = path.split("/").filter(Boolean);
   if (parts.length <= 2) return path;
   return (path.startsWith("~") ? "~/…/" : "…/") + parts.slice(-2).join("/");
@@ -76,14 +86,15 @@ const relativeTime = (ts) => {
 };
 
 /**
- * Update the status indicator on the current session's tab.
- * Called from sse.js on processing-start / processing-done.
+ * Update the status indicator on a specific session's tab.
+ * Called from sse.js on processing-start / processing-done for the
+ * session that emitted the frame (which may be a background session).
  */
-export const setCurrentSessionStatus = (status) => {
-  const items = sessionList.querySelectorAll("li");
-  for (const li of items) {
-    if (li.classList.contains("current")) {
-      // Remove all status classes first
+export const setSessionStatus = (sid, status) => {
+  if (!sid) return;
+  for (const li of sessionList.querySelectorAll("li")) {
+    const href = li.querySelector("a")?.getAttribute("href") ?? "";
+    if (href === `/${sid}/`) {
       li.classList.remove("session-streaming", "session-unread");
       if (status) li.classList.add(status);
       return;
@@ -133,7 +144,8 @@ const startTitleEdit = (li, instanceId, currentTitle) => {
 
 const renderSessionItem = (s) => {
   const li = document.createElement("li");
-  const isCurrent = s.instanceId === sessionId;
+  li.dataset.sessionId = s.instanceId;
+  const isCurrent = s.instanceId === activeSessionId.peek();
   const hasTitle = s.title && s.title !== s.instanceId;
   if (isCurrent) {
     li.className = "current";
@@ -145,15 +157,18 @@ const renderSessionItem = (s) => {
 
   const a = document.createElement("a");
   a.href = `/${s.instanceId}/`;
-  if (isCurrent) {
-    a.addEventListener("click", (ev) => ev.preventDefault());
-  } else {
-    a.addEventListener("click", (ev) => {
-      // Skip exit transition for new-tab/window opens
-      if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+  a.addEventListener("click", (ev) => {
+    // Cmd/Ctrl/Shift-click → browser default (new tab/window).
+    if (ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    if (spaEnabled()) {
+      ev.preventDefault();
+      switchTo(s.instanceId);
+    } else if (s.instanceId !== activeSessionId.peek()) {
       document.body.classList.add("exiting");
-    });
-  }
+    } else {
+      ev.preventDefault();
+    }
+  });
   const title = escape(hasTitle ? s.title : t("untitled"));
   const cwdText = s.cwd ? `<span class="session-cwd" title="${escape(s.cwd)}">${escape(shortenCwd(s.cwd))}</span>` : "";
   const timeText = s.startedAt ? `<span class="session-time" title="${escape(new Date(s.startedAt).toLocaleString())}">${escape(relativeTime(s.startedAt))}</span>` : "";
@@ -186,9 +201,31 @@ const renderSessionItem = (s) => {
     try {
       await fetch(`/${s.instanceId}/`, { method: "DELETE" });
     } catch {}
-    if (s.instanceId === sessionId) {
+    const closingActive = s.instanceId === activeSessionId.peek();
+    if (closingActive && spaEnabled()) {
+      // Pick another session to land on. Prefer one we've already preloaded,
+      // otherwise the first item in the sidebar that isn't being deleted.
+      let nextId = null;
+      for (const id of sessions.keys()) {
+        if (id && id !== s.instanceId) { nextId = id; break; }
+      }
+      if (!nextId) {
+        for (const li of sessionList.querySelectorAll("li[data-session-id]")) {
+          const id = li.dataset.sessionId;
+          if (id && id !== s.instanceId) { nextId = id; break; }
+        }
+      }
+      if (nextId) {
+        switchTo(nextId);
+        sessions.get(s.instanceId)?.remove();
+        renderSessions();
+      } else {
+        window.location.href = "/";
+      }
+    } else if (closingActive) {
       window.location.href = "/";
     } else {
+      sessions.get(s.instanceId)?.remove();
       renderSessions();
     }
   });
@@ -202,17 +239,20 @@ const renderSessions = async () => {
   try {
     const res = await fetch("/sessions");
     const list = await res.json();
-    const hash = JSON.stringify(list);
+    const hash = JSON.stringify(list.map((s) => [
+      s.instanceId, s.title, s.cwd, s.startedAt, s.isProcessing, s.hasUnread,
+    ]));
     if (hash === sessionsHash) return;  // 5s poll: skip rebuild when nothing changed
+    const isFirstRender = sessionsHash === "";
     sessionsHash = hash;
-    if (!state.homeDir && list[0]?.cwd) {
+    if (!homeDir.value && list[0]?.cwd) {
       const m = list[0].cwd.match(/^(\/Users\/[^/]+|\/home\/[^/]+)/);
-      if (m) state.homeDir = m[1];
+      if (m) homeDir.value = m[1];
     }
     sessionList.innerHTML = "";
     const buckets = new Map();
     for (const s of list) {
-      const k = bucketKey(s.lastModified ?? s.startedAt);
+      const k = bucketKey(s.startedAt);
       if (!buckets.has(k)) buckets.set(k, []);
       buckets.get(k).push(s);
     }
@@ -226,7 +266,11 @@ const renderSessions = async () => {
       let staggerIdx = 0;
       for (const s of items) {
         const li = renderSessionItem(s);
-        li.style.animationDelay = `${staggerIdx * 0.04}s`;
+        if (isFirstRender) {
+          li.style.animationDelay = `${staggerIdx * 0.04}s`;
+        } else {
+          li.style.animation = "none";
+        }
         staggerIdx++;
       }
     }
@@ -235,6 +279,23 @@ const renderSessions = async () => {
 
 renderSessions();
 setInterval(renderSessions, 5000);
+
+// Toggle the .current class and sync header info on active-session change.
+effect(() => {
+  const active = activeSessionId.value;
+  let activeLi = null;
+  for (const li of sessionList.querySelectorAll("li[data-session-id]")) {
+    const match = li.dataset.sessionId === active;
+    li.classList.toggle("current", match);
+    if (match) activeLi = li;
+  }
+  if (activeLi) {
+    const titleSpan = activeLi.querySelector(".session-title");
+    const cwdSpan = activeLi.querySelector(".session-cwd");
+    setSessionTopic(titleSpan?.textContent && titleSpan.textContent !== t("untitled") ? titleSpan.textContent : "");
+    setSessionCwd(cwdSpan?.title ?? "");
+  }
+});
 
 // Clean up exit transition class on bfcache restore (Back button)
 window.addEventListener("pageshow", (ev) => {
@@ -250,7 +311,7 @@ document.addEventListener("langchange", () => {
 // Inline update — a full re-render would clobber an in-progress title edit.
 export const updateSessionTitle = (sid, title) => {
   if (!title) return;
-  if (sid === sessionId) setSessionTopic(title);
+  if (sid === activeSessionId.peek()) setSessionTopic(title);
   const items = sessionList.querySelectorAll("li");
   for (const li of items) {
     const a = li.querySelector("a");

@@ -1,26 +1,29 @@
-import { sessionId, submitUrl, state, queryHistory } from "./state.js";
+import { currentSessionId, state, queryHistory } from "./state.js";
 import { escape } from "./utils.js";
 import { appendAfterPending } from "./stream/tool-group.js";
 import { createUserBox } from "./actions.js";
 import { attachAutocomplete } from "./autocomplete.js";
 import { attachPromptAutocomplete } from "./prompt-manager.js";
 import { attachAtMentionAutocomplete } from "./at-mention.js";
+import { activeSession } from "./session-manager.js";
+import { effect } from "../vendor/signals-core.js";
 
 const form = document.getElementById("form");
 const input = document.getElementById("query");
 const cancelBtn = document.getElementById("cancel-turn");
 
-if (!sessionId) {
-  if (input) input.disabled = true;
-  if (form) form.style.opacity = "0.5";
-}
+effect(() => {
+  const hasSession = !!activeSession.value;
+  if (input) input.disabled = !hasSession;
+  if (form) form.style.opacity = hasSession ? "" : "0.5";
+});
 
 const submitSlash = async (raw) => {
   const trimmed = raw.trim();
   const space = trimmed.indexOf(" ");
   const name = space === -1 ? trimmed : trimmed.slice(0, space);
   const args = space === -1 ? "" : trimmed.slice(space + 1);
-  await fetch(`/${sessionId}/command`, {
+  await fetch(`/${currentSessionId()}/command`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, args }),
@@ -35,7 +38,7 @@ const slashAc = attachAutocomplete({
     return t.startsWith("/") && !t.startsWith("//");
   },
   fetcher: async (buffer) => {
-    const r = await fetch(`/${sessionId}/autocomplete?buffer=${encodeURIComponent(buffer)}`);
+    const r = await fetch(`/${currentSessionId()}/autocomplete?buffer=${encodeURIComponent(buffer)}`);
     if (!r.ok) return [];
     const data = await r.json();
     return data.items;
@@ -85,17 +88,18 @@ form?.addEventListener("submit", async (ev) => {
       (state.cwd ? `<span class="turn-cwd">${escape(state.cwd)}</span>` : "") +
       `<span class="turn-time">${new Date().toLocaleTimeString()}</span>` +
       `<span class="turn-line"></span>`;
-    appendAfterPending(optimisticSep);
+    const sv = activeSession.peek();
+    appendAfterPending(sv, optimisticSep);
     optimisticBox = createUserBox(query);
     optimisticBox.classList.add("pending");
-    appendAfterPending(optimisticBox);
+    appendAfterPending(sv, optimisticBox);
   }
   input.disabled = true;
   try {
     if (query.startsWith("/")) {
       await submitSlash(query);
     } else {
-      await fetch(submitUrl, {
+      await fetch(`/${currentSessionId()}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
@@ -211,13 +215,14 @@ document.addEventListener("keydown", (ev) => {
 });
 
 export const cancelTurn = () => {
-  if (!sessionId) return;
+  const sid = currentSessionId();
+  if (!sid) return;
   if (!state.isProcessing) return;
   if (cancelBtn && !cancelBtn.hidden) {
     cancelBtn.classList.add("flash");
     setTimeout(() => cancelBtn.classList.remove("flash"), 200);
   }
-  fetch(`/${sessionId}/cancel`, { method: "POST" }).catch(() => {});
+  fetch(`/${sid}/cancel`, { method: "POST" }).catch(() => {});
 };
 
 cancelBtn?.addEventListener("click", cancelTurn);

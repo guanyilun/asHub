@@ -1,7 +1,9 @@
-import { sessionId } from "./state.js";
+import { currentSessionId } from "./state.js";
 import { setCtxOpen } from "./context-panel.js";
 import { setConfigOpen } from "./config-panel.js";
 import { t } from "./i18n.js";
+import { activeSession } from "./session-manager.js";
+import { effect } from "../vendor/signals-core.js";
 
 const app = document.querySelector(".app");
 const filesPanel = document.getElementById("files-panel");
@@ -17,8 +19,7 @@ const LS_FILES = "ash.files-open";
 // Set initial text (JS manages this dynamically, so no data-i18n in HTML)
 if (filesEmpty) filesEmpty.textContent = t("files.loading");
 
-// Track expanded directories: key = full path, value = child container element
-const expandedDirs = new Map();
+const expandedDirs = () => activeSession.peek()?.files.expandedDirs ?? new Map();
 
 const showFilesEmpty = (msg, sub) => {
   if (!filesEmpty) return;
@@ -87,7 +88,7 @@ const makeEntryEl = (f, basePath) => {
 
 // Fetch subdirectory contents from the server
 const fetchSubdir = async (subdirPath) => {
-  const resp = await fetch(`/${sessionId}/files?subdir=${encodeURIComponent(subdirPath)}`);
+  const resp = await fetch(`/${currentSessionId()}/files?subdir=${encodeURIComponent(subdirPath)}`);
   if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
   return resp.json();
 };
@@ -99,19 +100,19 @@ const toggleDir = async (entryEl) => {
 
   const chevron = entryEl.querySelector(".files-entry-chevron");
 
-  if (expandedDirs.has(dirPath)) {
+  if (expandedDirs().has(dirPath)) {
     // Collapse: remove children and clean up nested expanded state
-    const childContainer = expandedDirs.get(dirPath);
+    const childContainer = expandedDirs().get(dirPath);
     if (childContainer) {
       // Collect nested keys first to safely delete during iteration
       const nestedKeys = [];
-      for (const key of expandedDirs.keys()) {
+      for (const key of expandedDirs().keys()) {
         if (key === dirPath || key.startsWith(dirPath + "/")) {
           nestedKeys.push(key);
         }
       }
       for (const key of nestedKeys) {
-        expandedDirs.delete(key);
+        expandedDirs().delete(key);
       }
       childContainer.remove();
     }
@@ -143,7 +144,7 @@ const toggleDir = async (entryEl) => {
 
     // Insert after the entry
     entryEl.after(childContainer);
-    expandedDirs.set(dirPath, childContainer);
+    expandedDirs().set(dirPath, childContainer);
     entryEl.classList.add("expanded");
     if (chevron) chevron.classList.add("expanded");
   } catch {
@@ -157,7 +158,7 @@ const renderFiles = (files, basePath) => {
 
   // Only clear root entries; we manage children separately
   filesBody.querySelectorAll(":scope > .files-entry, :scope > .files-children").forEach((el) => el.remove());
-  expandedDirs.clear();
+  expandedDirs().clear();
 
   if (files.length === 0) {
     showFilesEmpty(basePath ? t("files.empty.dir") : t("files.no.files"), basePath ? "" : t("files.empty.hint"));
@@ -185,19 +186,30 @@ filesBody?.addEventListener("click", (e) => {
   toggleDir(entry);
 });
 
+let fetchSeq = 0;
+let fetchAbort = null;
+
 const fetchFiles = async () => {
   if (!filesBody || !filesCwd || !filesEmpty) return;
-  if (!sessionId) { showFilesEmpty(t("files.no.session"), t("files.no.session.hint")); return; }
+  const sid = currentSessionId();
+  if (!sid) { showFilesEmpty(t("files.no.session"), t("files.no.session.hint")); return; }
+  // Cancel any in-flight request — rapid session switches otherwise race.
+  fetchAbort?.abort();
+  const ac = new AbortController();
+  fetchAbort = ac;
+  const mySeq = ++fetchSeq;
   showFilesEmpty(t("files.loading"));
   filesBody.querySelectorAll(":scope > .files-entry, :scope > .files-children").forEach((el) => el.remove());
-  expandedDirs.clear();
+  expandedDirs().clear();
   try {
-    const resp = await fetch(`/${sessionId}/files`);
+    const resp = await fetch(`/${sid}/files`, { signal: ac.signal });
     const data = await resp.json();
+    if (mySeq !== fetchSeq) return;  // a newer fetch took over
     filesCwd.textContent = data.cwd || "";
     filesCwd.title = data.cwd || "";
     renderFiles(data.files || [], "");
-  } catch {
+  } catch (e) {
+    if (e?.name === "AbortError" || mySeq !== fetchSeq) return;
     showFilesEmpty(t("files.failed"), t("files.failed.hint"));
   }
 };
@@ -240,3 +252,9 @@ document.addEventListener("langchange", () => {
 export const refreshFilesIfOpen = () => {
   if (filesPanel && !filesPanel.hasAttribute("hidden")) fetchFiles();
 };
+
+// Re-fetch when the active session changes (Phase 3 SPA switching).
+effect(() => {
+  activeSession.value;
+  refreshFilesIfOpen();
+});

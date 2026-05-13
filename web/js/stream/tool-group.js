@@ -1,11 +1,8 @@
 import { hideEmptyState, maybeScroll } from "./scroll.js";
 import { t } from "../i18n.js";
 
-const stream = document.getElementById("stream");
-
 const TOOL_GROUP_COLLAPSE = 2;
 const groupState = new WeakMap();
-let currentToolGroup = null;
 
 /**
  * Insert a node into the stream, before any trailing pending user-boxes.
@@ -14,12 +11,10 @@ let currentToolGroup = null;
  * New content from the current turn must be inserted BEFORE the first
  * pending box — otherwise auto-scroll keeps jumping past it and the
  * queued messages scroll out of view.
- *
- * We find the *first* pending box (not the last) so that when multiple
- * messages are queued, streaming content stays before all of them and the
- * pending boxes keep their relative submission order.
  */
-export const insertStreamNode = (node) => {
+export const insertStreamNode = (session, node) => {
+  const stream = session?.streamEl;
+  if (!stream) return;
   const firstPending = stream.querySelector(".agent-box.pending");
   if (firstPending) {
     stream.insertBefore(node, firstPending);
@@ -30,27 +25,13 @@ export const insertStreamNode = (node) => {
 
 const toolCount = (g) => g.querySelectorAll(".tool-row").length;
 
-const rebuildGroupState = (g) => {
-  const head = g.querySelector(".tool-group-head");
-  const body = g.querySelector(".tool-group-body");
-  if (head && body) groupState.set(g, { head, body });
-};
-
-/** Save/restore for infinite-scroll replay processing */
-export const getToolGroupState = () => ({ currentToolGroup });
-export const setToolGroupState = (s) => {
-  currentToolGroup = s.currentToolGroup ?? null;
-  // Rebuild WeakMap from DOM for restored tool-group elements
-  document.querySelectorAll(".tool-group").forEach(rebuildGroupState);
-};
-
 const updateToolGroupHead = (g) => {
   const { head } = groupState.get(g);
   head.textContent = `🔧 ${t("n.tools", { n: toolCount(g) })}`;
 };
 
-const openToolGroup = () => {
-  if (currentToolGroup) return currentToolGroup;
+const openToolGroup = (session) => {
+  if (session?.toolGroup.current) return session.toolGroup.current;
   const g = document.createElement("div");
   g.className = "tool-group";
   const head = document.createElement("button");
@@ -66,21 +47,21 @@ const openToolGroup = () => {
   body.className = "tool-group-body";
   g.append(head, body);
   groupState.set(g, { head, body });
-  hideEmptyState();
-  insertStreamNode(g);
-  currentToolGroup = g;
-  maybeScroll();
+  hideEmptyState(session);
+  insertStreamNode(session, g);
+  if (session) session.toolGroup.current = g;
+  maybeScroll(session);
   return g;
 };
 
-export const appendToGroup = (node) => {
-  const g = openToolGroup();
+export const appendToGroup = (session, node) => {
+  const g = openToolGroup(session);
   groupState.get(g).body.appendChild(node);
-  maybeScroll();
+  maybeScroll(session);
 };
 
-export const bumpToolCount = () => {
-  const g = openToolGroup();
+export const bumpToolCount = (session) => {
+  const g = openToolGroup(session);
   if (toolCount(g) >= TOOL_GROUP_COLLAPSE) {
     groupState.get(g).head.hidden = false;
     updateToolGroupHead(g);
@@ -88,10 +69,10 @@ export const bumpToolCount = () => {
 };
 
 // Collapse here, not in bumpToolCount, so rows stay visible while running.
-const closeToolGroup = () => {
-  const g = currentToolGroup;
+const closeToolGroup = (session) => {
+  const g = session?.toolGroup.current;
   if (!g) return;
-  currentToolGroup = null;
+  session.toolGroup.current = null;
   if (groupState.get(g).body.children.length === 0) { g.remove(); return; }
   if (toolCount(g) >= TOOL_GROUP_COLLAPSE) {
     if (!g.dataset.userToggled) g.classList.add("collapsed");
@@ -99,11 +80,11 @@ const closeToolGroup = () => {
   }
 };
 
-export const append = (node) => {
-  closeToolGroup();
-  hideEmptyState();
-  insertStreamNode(node);
-  maybeScroll();
+export const append = (session, node) => {
+  closeToolGroup(session);
+  hideEmptyState(session);
+  insertStreamNode(session, node);
+  maybeScroll(session);
 };
 
 /**
@@ -111,11 +92,11 @@ export const append = (node) => {
  * Used for optimistic queued-message boxes, which must appear after all
  * existing pending boxes to preserve submission order.
  */
-export const appendAfterPending = (node) => {
-  closeToolGroup();
-  hideEmptyState();
-  stream.appendChild(node);
-  maybeScroll();
+export const appendAfterPending = (session, node) => {
+  closeToolGroup(session);
+  hideEmptyState(session);
+  session?.streamEl?.appendChild(node);
+  maybeScroll(session);
 };
 
 // Refresh translated labels on language change

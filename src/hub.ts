@@ -16,6 +16,8 @@ import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Bridge, BridgeFactory, BusEvent } from "./bridges/types.js";
+import { LlmClient } from "agent-sh";
+import { resolveProvider, getSettings, getProviderNames } from "agent-sh/settings";
 
 export interface HubOpts {
   port: number;
@@ -35,6 +37,7 @@ interface Session {
   segmentSeq: number;
   sseClients: Set<http.ServerResponse>;
   model?: string;
+  provider?: string;
   startedAt: number;
   /** True once the first user→assistant turn has completed (for auto-title). */
   firstTurnDone: boolean;
@@ -52,9 +55,22 @@ interface Session {
   isProcessing: boolean;
   /** Whether the session has new output since the user last viewed it. */
   hasUnread: boolean;
+  lastAgentInfo: Record<string, unknown> | null;
 }
 
 const REPLAY_LIMIT = 5000;
+
+let frameSeq = 0;
+const frameIdRe = /^id: (\d+)/;
+
+function parseFrameName(frame: string): string {
+  const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
+  if (!dataLine) return "";
+  try {
+    const inner = JSON.parse(dataLine.slice("data: ".length));
+    return (inner?.meta?.name ?? "") as string;
+  } catch { return ""; }
+}
 const REPLAY_NAMES = new Set([
   "agent:info",
   "agent:query",
@@ -103,7 +119,7 @@ async function ensureSessionsDir(): Promise<void> {
 
 async function saveSessionMeta(session: Session): Promise<void> {
   await ensureSessionsDir();
-  const meta = { id: session.id, title: session.title, cwd: session.cwd, model: session.model, startedAt: session.startedAt, firstQuery: session.firstQuery, userTitle: session.userTitle, lastModified: session.lastModified };
+  const meta = { id: session.id, title: session.title, cwd: session.cwd, model: session.model, provider: session.provider, startedAt: session.startedAt, firstQuery: session.firstQuery, userTitle: session.userTitle, lastModified: session.lastModified };
   await fs.promises.writeFile(path.join(SESSIONS_DIR, `${session.id}.meta.json`), JSON.stringify(meta));
 }
 
@@ -197,12 +213,31 @@ interface PersistedSession {
   title?: string;
   cwd: string;
   model?: string;
+  provider?: string;
   startedAt: number;
   replay: string[];
   messages?: unknown[];
   firstQuery?: string;
   userTitle?: string;
   lastModified?: number;
+}
+
+function inferProviderForModel(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  for (const name of getProviderNames()) {
+    const p = resolveProvider(name);
+    if (!p) continue;
+    if (p.defaultModel === model) return name;
+    if (p.models?.includes(model)) return name;
+  }
+  return undefined;
+}
+
+function providerHasModel(name: string | undefined, model: string | undefined): boolean {
+  if (!name || !model) return false;
+  const p = resolveProvider(name);
+  if (!p) return false;
+  return p.defaultModel === model || (p.models?.includes(model) ?? false);
 }
 
 async function loadPersistedSessions(): Promise<PersistedSession[]> {
@@ -228,9 +263,33 @@ async function loadPersistedSessions(): Promise<PersistedSession[]> {
           const parsed = JSON.parse(msgRaw);
           if (Array.isArray(parsed)) messages = parsed;
         } catch {}
-        results.push({ id: meta.id || id, title: meta.title, cwd: meta.cwd, model: meta.model, startedAt: meta.startedAt, replay, messages, firstQuery: meta.firstQuery, userTitle: meta.userTitle, lastModified: meta.lastModified });
+        results.push({ id: meta.id || id, title: meta.title, cwd: meta.cwd, model: meta.model, provider: meta.provider, startedAt: meta.startedAt, replay, messages, firstQuery: meta.firstQuery, userTitle: meta.userTitle, lastModified: meta.lastModified });
       } catch {}
     }
+
+    // Fallback for dynamic-catalog models that never appear in any static `models` list.
+    const observed = new Map<string, string>();
+    for (const s of results) {
+      if (s.model && s.provider) observed.set(s.model, s.provider);
+    }
+
+    for (const s of results) {
+      if (!s.model) continue;
+      const staticMatch = inferProviderForModel(s.model);
+
+      if (!s.provider) {
+        const inferred = staticMatch ?? observed.get(s.model);
+        if (inferred) {
+          s.provider = inferred;
+          console.log(`[hub] backfilled provider="${inferred}" for session ${s.id} (model=${s.model})`);
+        }
+      } else if (staticMatch && staticMatch !== s.provider && !providerHasModel(s.provider, s.model)) {
+        // Heal persisted pairings written while a stale defaultProvider was active.
+        console.log(`[hub] corrected stale provider for session ${s.id}: "${s.provider}" → "${staticMatch}" (model=${s.model})`);
+        s.provider = staticMatch;
+      }
+    }
+
     return results;
   } catch {
     return [];
@@ -256,6 +315,10 @@ export function startHub(opts: HubOpts): http.Server {
     if (req.method === "POST" && url === "/api/config/reload") return reloadConfig(res);
     if (req.method === "GET" && url === "/api/version") return getVersion(res);
     if (req.method === "GET" && url === "/sessions") return listSessions(res, sessions);
+    if (req.method === "GET" && url.startsWith("/events")) {
+      const params = new URLSearchParams(url.split("?")[1] ?? "");
+      return openSseMulti(req, res, sessions, params.get("subs") ?? "", params.get("since") ?? "");
+    }
     if (req.method === "GET" && url.startsWith("/fs")) {
       const params = new URLSearchParams(url.split("?")[1] ?? "");
       return listDirs(res, params.get("prefix") ?? "");
@@ -271,7 +334,6 @@ export function startHub(opts: HubOpts): http.Server {
       const session = sessions.get(id);
       if (!session) { res.statusCode = 404; res.end("no session"); return; }
 
-      if (rest === "/events") return openSse(req, res, session);
       if (req.method === "POST" && rest === "/submit") return submit(req, res, session);
       if (req.method === "POST" && rest === "/command") return execCommand(req, res, session);
       if (req.method === "POST" && rest === "/title") return updateTitle(req, res, session);
@@ -297,13 +359,6 @@ export function startHub(opts: HubOpts): http.Server {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: true }));
         return;
-      }
-      if (req.method === "GET" && rest.startsWith("/replay-before/")) {
-        const rawId = rest.slice("/replay-before/".length);
-        const frameId = decodeURIComponent(rawId);
-        const q = url.split("?")[1] ?? "";
-        const params = new URLSearchParams(q);
-        return replayBefore(res, session, frameId, parseInt(params.get("turns") ?? "3", 10));
       }
       if (req.method === "GET" && rest.startsWith("/files")) {
         const params = new URLSearchParams(rawRest.split("?")[1] ?? "");
@@ -426,10 +481,10 @@ async function createSession(
   sessions: Map<string, Session>,
   opts: HubOpts,
   cwd: string,
-  existing?: { id: string; title?: string; replay: string[]; startedAt: number; messages?: unknown[]; firstQuery?: string; userTitle?: string; model?: string; lastModified?: number },
+  existing?: { id: string; title?: string; replay: string[]; startedAt: number; messages?: unknown[]; firstQuery?: string; userTitle?: string; model?: string; provider?: string; lastModified?: number },
 ): Promise<Session> {
   const id = existing?.id ?? randomBytes(3).toString("hex");
-  const bridge = opts.makeBridge({ cwd, initialMessages: existing?.messages, model: existing?.model });
+  const bridge = opts.makeBridge({ cwd, initialMessages: existing?.messages, model: existing?.model, provider: existing?.provider });
 
   const session: Session = {
     id,
@@ -441,6 +496,7 @@ async function createSession(
     segmentSeq: 0,
     sseClients: new Set(),
     model: existing?.model,
+    provider: existing?.provider,
     startedAt: existing?.startedAt ?? Date.now(),
     // If the session already has messages, the first turn was already done.
     firstTurnDone: !!(existing?.messages?.length),
@@ -451,6 +507,7 @@ async function createSession(
     lastModified: existing?.lastModified ?? existing?.startedAt ?? Date.now(),
     isProcessing: false,
     hasUnread: false,
+    lastAgentInfo: null,
   };
 
   bridge.onEvent((e) => {
@@ -477,11 +534,8 @@ async function createSession(
   if (existing?.replay && existing.replay.length > 0) {
     let hasDangling = false;
     for (let i = existing.replay.length - 1; i >= 0; i--) {
-      let name = "";
-      try {
-        const inner = JSON.parse(existing.replay[i].replace(/^data:\s*/, "").trimEnd());
-        name = (inner?.meta?.name ?? "") as string;
-      } catch { continue; }
+      const name = parseFrameName(existing.replay[i]!);
+      if (!name) continue;
       if (name === "agent:processing-done" || name === "agent:cancelled" || name === "agent:error") break;
       if (name === "agent:processing-start") { hasDangling = true; break; }
     }
@@ -513,10 +567,21 @@ async function restoreSessions(sessions: Map<string, Session>, opts: HubOpts): P
   // Sort by lastModified descending so the most recently active sessions
   // appear first in the sidebar — mirroring listSessions.
   persisted.sort((a, b) => (b.lastModified ?? b.startedAt ?? 0) - (a.lastModified ?? a.startedAt ?? 0));
+  // Restart safety: client's Last-Event-ID stays valid because we keep growing
+  // past the highest persisted id.
+  for (const p of persisted) {
+    for (const line of p.replay) {
+      const m = line.match(frameIdRe);
+      if (m) {
+        const n = Number(m[1]);
+        if (n > frameSeq) frameSeq = n;
+      }
+    }
+  }
   console.error(`[hub] restoring ${persisted.length} session(s)…`);
   for (const p of persisted) {
     try {
-      await createSession(sessions, opts, p.cwd, { id: p.id, title: p.title, replay: p.replay, startedAt: p.startedAt, messages: p.messages, firstQuery: p.firstQuery, userTitle: p.userTitle, model: p.model, lastModified: p.lastModified });
+      await createSession(sessions, opts, p.cwd, { id: p.id, title: p.title, replay: p.replay, startedAt: p.startedAt, messages: p.messages, firstQuery: p.firstQuery, userTitle: p.userTitle, model: p.model, provider: p.provider, lastModified: p.lastModified });
       console.error(`[hub] restored session ${p.id} (cwd: ${p.cwd})`);
     } catch (err) {
       console.error(`[hub] failed to restore session ${p.id}:`, err);
@@ -596,8 +661,15 @@ function routeEvent(session: Session, e: BusEvent): void {
   if (e.name === "agent:tool-started") flushSegment(session);
 
   if (e.name === "agent:info") {
-    const info = e.payload as { model?: string } | undefined;
-    if (info?.model) session.model = info.model;
+    const info = e.payload as Record<string, unknown> | undefined;
+    if (info && typeof info === "object") {
+      session.lastAgentInfo ??= {};
+      for (const [k, v] of Object.entries(info)) {
+        if (v !== undefined && v !== null && v !== "") session.lastAgentInfo[k] = v;
+      }
+      if (typeof info.model === "string" && info.model) session.model = info.model;
+      if (typeof info.provider === "string" && info.provider) session.provider = info.provider;
+    }
   }
 
   if (e.name === "agent:cancelled") {
@@ -621,7 +693,7 @@ function flushSegment(session: Session): void {
 }
 
 function sseFrame(meta: object, payload: unknown): string {
-  return `data: ${JSON.stringify({ meta, payload })}\n\n`;
+  return `id: ${++frameSeq}\ndata: ${JSON.stringify({ meta, payload })}\n\n`;
 }
 
 function pushFrame(session: Session, name: string, frame: string): void {
@@ -650,74 +722,47 @@ async function setSessionTitle(session: Session, title: string): Promise<void> {
 
 async function generateTitleAsync(session: Session): Promise<void> {
   const query = session.firstQuery?.trim();
-  // Skip if no query captured, or if user already set a custom title manually.
   if (!query || session.userTitle) return;
 
-  const settings = await readSettings();
-  const provider: string = (settings?.defaultProvider as string) || (settings?.provider as string) || "openai";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const providers: any = settings?.providers ?? {};
-  const providerCfg = providers[provider] as { apiKey?: string; baseURL?: string; model?: string; defaultModel?: string } | undefined;
-  const apiKey = (providerCfg?.apiKey as string) || (settings?.apiKey as string);
-  if (!apiKey) return;
+  const providerName = session.provider || getSettings().defaultProvider;
+  if (!providerName) return;
+  const resolved = resolveProvider(providerName);
+  if (!resolved?.apiKey) return;
+  const model = session.model || resolved.defaultModel;
+  if (!model) return;
 
-  const model = (providerCfg?.defaultModel ?? providerCfg?.model ?? settings?.model ?? "gpt-4o-mini") as string;
-  const baseURL = (providerCfg?.baseURL ?? settings?.baseURL ?? "https://api.openai.com/v1") as string;
-  const url = baseURL.replace(/\/+$/, "") + "/chat/completions";
-
-  const body = JSON.stringify({
+  const client = new LlmClient({
+    apiKey: resolved.apiKey,
+    baseURL: resolved.baseURL,
     model,
-    messages: [
-      { role: "system", content: "You are a title generator. Given a user's first message to an AI assistant, generate a concise, descriptive title (max 6 words, no quotes). Return ONLY the title text, nothing else." },
-      { role: "user", content: `Generate a short title for a conversation that starts with: "${query}"` },
-    ],
-    max_tokens: 80,
-    temperature: 0.3,
-    thinking: { type: "disabled" },
+    appName: "asHub",
   });
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-
-  try {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body,
-      signal: controller.signal,
-    });
-    if (!resp.ok) return;
-    const data = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const title = data?.choices?.[0]?.message?.content?.trim().replace(/^"|"$/g, "") ?? "";
-    if (title && !session.userTitle) await setSessionTitle(session, title);
-  } catch {
-    // Silently ignore — title generation is a best-effort feature
-  } finally {
-    clearTimeout(timeout);
+  const stream = await client.stream({
+    messages: [
+      { role: "system", content: "You are a title generator. Given a user's first message to an AI assistant, generate a concise, descriptive title (max 10 words, no quotes). Return ONLY the title text, nothing else." },
+      { role: "user", content: `Generate a short title for a conversation that starts with: "${query}"` },
+    ],
+    max_tokens: 4096,
+  });
+  let raw = "";
+  for await (const chunk of stream) {
+    raw += chunk?.choices?.[0]?.delta?.content ?? "";
   }
-}
-
-async function readSettings(): Promise<Record<string, unknown> | null> {
-  try {
-    const raw = await fs.promises.readFile(settingsPath(), "utf-8");
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
+  const title = raw.trim().replace(/^"|"$/g, "");
+  if (title && !session.userTitle) await setSessionTitle(session, title);
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────
 
 function listSessions(res: http.ServerResponse, sessions: Map<string, Session>): void {
   const list = Array.from(sessions.values())
-    .sort((a, b) => (b.lastModified ?? b.startedAt) - (a.lastModified ?? a.startedAt))
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))
     .map((s) => ({
       instanceId: s.id,
       title: s.title,
       model: s.model,
+      provider: s.provider,
       cwd: s.cwd,
       startedAt: s.startedAt,
       lastModified: s.lastModified,
@@ -917,51 +962,64 @@ async function generateTitle(req: http.IncomingMessage, res: http.ServerResponse
   );
 }
 
-function openSse(req: http.IncomingMessage, res: http.ServerResponse, session: Session): void {
-  // User is viewing this session — clear unread indicator.
-  session.hasUnread = false;
+// subs=A:50,B:0 — sessionId:tail. tail>0 fresh-replays; tail=0 + since
+// catches up missed frames via the monotonic id stream.
+function openSseMulti(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  sessions: Map<string, Session>,
+  subsParam: string,
+  sinceParam: string,
+): void {
+  const subs = subsParam.split(",").map((s) => {
+    const [id, tailStr] = s.split(":");
+    const tail = tailStr === "all" ? Infinity : Math.max(0, Number(tailStr ?? "50") || 0);
+    return { id: id ?? "", tail };
+  }).filter((s) => s.id);
+
+  const headerLast = req.headers["last-event-id"];
+  const since = Math.max(
+    0,
+    Number(Array.isArray(headerLast) ? headerLast[0] : headerLast ?? "") || 0,
+    Number(sinceParam) || 0,
+  );
+
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
   });
-  res.write(`: connected ${session.id}\n\n`);
+  res.write(`: connected ${subs.length}\n\n`);
 
-  // Support ?tail=N to only replay the latest N frames (lazy-load older ones
-  // on scroll via /replay-before/<frameId>).  Without the parameter or when
-  // tail >= replay length, all frames are sent (existing behavior).
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const tailParam = url.searchParams.get("tail");
-  const tailCount = tailParam ? Math.max(1, parseInt(tailParam, 10) || 30) : 0;
-
-  const replay = session.replay;
-  if (tailCount > 0 && tailCount < replay.length) {
-    const splitAt = replay.length - tailCount;
-    // Extract the frame ID that marks the truncation boundary so the client
-    // can request older frames starting from this cursor.
-    let beforeId = "";
-    try {
-      const frame = JSON.parse(replay[splitAt]!.replace(/^data:\s*/, "").trimEnd());
-      beforeId = (frame?.meta?.id ?? "") as string;
-    } catch { /* keep empty */ }
-
-    try { res.write(`data: ${JSON.stringify({ meta: { name: "hub:replay-truncated", ts: Date.now() }, payload: { beforeId, total: replay.length } })}\n\n`); } catch { return; }
-
-    for (let i = splitAt; i < replay.length; i++) {
-      try { res.write(replay[i]!); } catch { return; }
+  for (const { id, tail } of subs) {
+    const session = sessions.get(id);
+    if (!session) continue;
+    if (tail > 0) {
+      session.hasUnread = false;
+      for (const line of session.replay.slice(-tail)) {
+        try { res.write(line); } catch { return; }
+      }
+      if (session.lastAgentInfo) {
+        const meta = { source: id, ts: Date.now(), id: `hub:${id}:reemit:agent:info`, name: "agent:info" };
+        try { res.write(`id: ${++frameSeq}\ndata: ${JSON.stringify({ meta, payload: session.lastAgentInfo })}\n\n`); } catch { return; }
+      }
+      const doneMeta = { source: id, ts: Date.now(), name: "hub:replay-done" };
+      try { res.write(`id: ${++frameSeq}\ndata: ${JSON.stringify({ meta: doneMeta })}\n\n`); } catch { return; }
+    } else if (since > 0) {
+      for (const line of session.replay) {
+        const m = line.match(frameIdRe);
+        if (m && Number(m[1]) > since) {
+          try { res.write(line); } catch { return; }
+        }
+      }
     }
-  } else {
-    for (const line of replay) {
-      try { res.write(line); } catch { return; }
-    }
+    session.sseClients.add(res);
   }
 
-  // Sentinel so the client knows replay is done and can exit batching
-  // mode even when live events arrive immediately after (active turn).
-  res.write(`data: {"meta":{"name":"hub:replay-done","ts":${Date.now()}}}\n\n`);
-  session.sseClients.add(res);
-  req.on("close", () => session.sseClients.delete(res));
+  req.on("close", () => {
+    for (const { id } of subs) sessions.get(id)?.sseClients.delete(res);
+  });
 }
 
 async function submit(req: http.IncomingMessage, res: http.ServerResponse, session: Session): Promise<void> {
@@ -1237,96 +1295,31 @@ async function truncateReplayAfterCompact(session: Session): Promise<void> {
     const snap = await session.bridge.snapshot();
     const messages = snap.messages as Array<{ role?: string }>;
     const remainingUserMsgs = messages.filter((m) => m?.role === "user").length;
-    let agentQueryCount = 0;
-    let truncateAt = session.replay.length;
-    for (let i = 0; i < session.replay.length; i++) {
-      const frame = session.replay[i]!;
-      let name = "";
-      try {
-        const inner = JSON.parse(frame.replace(/^data:\s*/, "").trimEnd());
-        name = (inner?.meta?.name ?? "") as string;
-      } catch {}
-      if (name === "agent:query") {
-        if (agentQueryCount >= remainingUserMsgs) {
-          truncateAt = i;
-          break;
-        }
-        agentQueryCount++;
-      }
-    }
-    if (truncateAt < session.replay.length) {
-      session.replay.length = truncateAt;
-      void persistReplayFile(session.id, session.replay).catch(() => {});
-    }
+    truncateReplayToTurnCount(session, remainingUserMsgs);
   } catch {}
 }
 
-/**
- * GET /<id>/replay-before/<frameId>?turns=N
- *
- * Returns older frames (as JSON array) that appear before the given frame ID
- * in the replay file.  Used by the client's infinite-scroll to lazy-load
- * older session content without re-sending all frames on connect.
- */
-async function replayBefore(
-  res: http.ServerResponse,
-  session: Session,
-  frameId: string,
-  maxTurns: number,
-): Promise<void> {
-  maxTurns = Math.max(1, maxTurns || 3);
-
-  // Read the full replay file from disk (session.replay is already trimmed
-  // for active use, but the on-disk file has the complete history).
-  let allFrames: string[];
-  try {
-    const raw = await fs.promises.readFile(
-      path.join(SESSIONS_DIR, `${session.id}.replay.jsonl`),
-      "utf-8",
-    );
-    allFrames = raw.split("\n\n").filter((l) => l.trim()).map((l) => l + "\n\n");
-  } catch {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ frames: [] }));
-    return;
+// Anchored on a known turn count rather than a post-compact snapshot.
+// Legacy sessions whose snapshot disagrees with the replay's agent:query
+// count would otherwise wipe surviving turns.
+function truncateReplayToTurnCount(session: Session, keepCount: number): void {
+  const replayQueryCount = session.replay.reduce(
+    (n, f) => n + (parseFrameName(f) === "agent:query" ? 1 : 0),
+    0,
+  );
+  if (keepCount > replayQueryCount) return;
+  let agentQueryCount = 0;
+  let truncateAt = session.replay.length;
+  for (let i = 0; i < session.replay.length; i++) {
+    if (parseFrameName(session.replay[i]!) === "agent:query") {
+      if (agentQueryCount >= keepCount) { truncateAt = i; break; }
+      agentQueryCount++;
+    }
   }
-
-  // Find the target frame by its meta.id
-  let targetIdx = allFrames.length;
-  for (let i = 0; i < allFrames.length; i++) {
-    try {
-      const frame = JSON.parse(allFrames[i]!.replace(/^data:\s*/, "").trimEnd());
-      if ((frame?.meta?.id ?? "") === frameId) { targetIdx = i; break; }
-    } catch { /* skip malformed frames */ }
+  if (truncateAt < session.replay.length) {
+    session.replay.length = truncateAt;
+    void persistReplayFile(session.id, session.replay).catch(() => {});
   }
-
-  // Walk backwards from targetIdx, counting turns (agent:query events)
-  let turnCount = 0;
-  let startIdx = targetIdx;
-  for (let i = targetIdx - 1; i >= 0; i--) {
-    startIdx = i;
-    try {
-      const frame = JSON.parse(allFrames[i]!.replace(/^data:\s*/, "").trimEnd());
-      if (frame?.meta?.name === "agent:query") {
-        turnCount++;
-        if (turnCount >= maxTurns) break;
-      }
-    } catch {}
-  }
-  // If we didn't reach maxTurns, start from the beginning
-  if (turnCount < maxTurns) startIdx = 0;
-
-  const frames = allFrames.slice(startIdx, targetIdx);
-  let firstContentId = "";
-  if (startIdx > 0) {
-    try {
-      const frame = JSON.parse(allFrames[startIdx]!.replace(/^data:\s*/, "").trimEnd());
-      firstContentId = (frame?.meta?.id ?? "") as string;
-    } catch {}
-  }
-
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ frames, firstContentId }));
 }
 
 async function rewindContext(req: http.IncomingMessage, res: http.ServerResponse, session: Session): Promise<void> {
@@ -1380,13 +1373,14 @@ async function rewindToTurn(req: http.IncomingMessage, res: http.ServerResponse,
         seen++;
       }
     }
-    if (toIndex === -1) {
-      res.statusCode = 404;
-      res.end(`turn ${turn} not found in context`);
-      return;
+    let stats: unknown = null;
+    // Snapshot may report fewer user msgs than the replay has agent:query frames
+    // (legacy sessions, prior compacts). Truncate the replay regardless so the
+    // UI matches the kernel state.
+    if (toIndex !== -1) {
+      stats = await session.bridge.compact({ kind: "rewind", toIndex });
     }
-    const stats = await session.bridge.compact({ kind: "rewind", toIndex });
-    await truncateReplayAfterCompact(session);
+    truncateReplayToTurnCount(session, turn);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, stats }));
   } catch (err) {
