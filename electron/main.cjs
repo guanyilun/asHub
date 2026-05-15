@@ -121,12 +121,27 @@ const GITHUB_REPO = "ashub";
 
 let mirrorFailed = false;
 
+const fs = require("fs");
+const crypto = require("crypto");
+
+function getInstallId() {
+  const file = path.join(app.getPath("userData"), ".install-id");
+  try {
+    const id = fs.readFileSync(file, "utf-8").trim();
+    if (id.length >= 16) return id;
+  } catch {}
+  const id = crypto.randomUUID();
+  try { fs.writeFileSync(file, id); } catch {}
+  return id;
+}
+
 function setupMirrorFeed() {
   if (!MIRROR_URL || isDev) return;
   mirrorFailed = false;
+  const feedUrl = `${MIRROR_URL}?clientId=${getInstallId()}`;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: MIRROR_URL,
+    url: feedUrl,
   });
   console.log("[updater] using mirror:", MIRROR_URL);
 }
