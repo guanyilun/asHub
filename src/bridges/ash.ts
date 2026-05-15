@@ -114,10 +114,29 @@ export class AshBridge extends EventEmitter implements Bridge {
       return `${base}\n\n# Working Directory\n\nCurrent working directory: ${cwd}`;
     });
 
-    // Cache initialMessages for injection into snapshot() — context:compact
-    // has async microtask races with other conversation mutations during
-    // init.  snapshot() injects them on first read instead.
+    // Restored sessions: inject the persisted conversation into the agent's
+    // live context so it can reference prior turns.  We do this at the very
+    // end of init() — after extensions are loaded and the backend is
+    // activated — to avoid microtask races with other conversation
+    // mutations.  Only clear seedMessages when the compact actually
+    // succeeded (stats returned); if no pipe handler processed it we keep
+    // the seed fallback so snapshot() still shows history in the UI.
     this.seedMessages = this.opts.initialMessages?.length ? [...this.opts.initialMessages] : null;
+    if (this.seedMessages) {
+      try {
+        const emitPipeAsync = core.bus.emitPipeAsync.bind(core.bus) as unknown as (
+          name: string,
+          payload: { strategy: ContextStrategy; stats?: { before: number; after: number; evictedCount: number } },
+        ) => Promise<{ stats?: { before: number; after: number; evictedCount: number } }>;
+        const r = await emitPipeAsync("context:compact", { strategy: { kind: "replace", messages: this.seedMessages } });
+        // Stats are only present when a pipe handler actually processed
+        // the compact.  If absent the agent's conversation was NOT mutated,
+        // so keep seedMessages for the snapshot() UI fallback.
+        if (r?.stats) this.seedMessages = null;
+      } catch (err) {
+        process.stderr.write(`[ash-bridge] failed to inject restored messages: ${err instanceof Error ? err.message : err}\n`);
+      }
+    }
   }
 
   private wire(core: AgentShellCore): void {
@@ -315,14 +334,20 @@ export class AshBridge extends EventEmitter implements Bridge {
     ) => ContextSnapshot;
     const snap = emitPipe("context:snapshot", { messages: [], contextWindow: 0, activeTokens: 0 });
 
+    // Filter system notes from the live conversation — they are
+    // internal metadata that shouldn't appear in the context panel
+    // or be persisted across save/restore cycles.
+    const cur = (snap.messages as Array<{ isSystemNote?: boolean }>)
+      .filter((m) => !m.isSystemNote);
+
     // When restoring a session, seedMessages holds the persisted
-    // conversation. Prepend it to every snapshot so both the context
-    // panel and saveSessionMessages see the full history.  Filter out
-    // system notes from the live conversation (seed already has its own).
+    // conversation.  Prepend it so both the context panel and
+    // saveSessionMessages see the full history.  (seed messages were
+    // saved from a prior snapshot, so they are already system-note-free.)
     if (this.seedMessages) {
-      const cur = (snap.messages as Array<{ isSystemNote?: boolean }>)
-        .filter((m) => !m.isSystemNote);
       snap.messages = [...this.seedMessages, ...cur];
+    } else {
+      snap.messages = cur;
     }
 
     return snap;
