@@ -524,6 +524,40 @@ async function getBalance(req: http.IncomingMessage, res: http.ServerResponse): 
 
 // ── Models ──────────────────────────────────────────────────────────
 
+// Model capabilities that agent-sh's provider backends don't report.
+// Maps model ID to its capabilities.  Used to enrich /api/models.
+const MODEL_CAPABILITIES: Record<string, { modalities?: string[] }> = {
+  // OpenAI
+  "gpt-4o": { modalities: ["text", "image"] },
+  "gpt-4.1": { modalities: ["text", "image"] },
+  "gpt-4o-mini": { modalities: ["text", "image"] },
+  "o3": { modalities: ["text", "image"] },
+  "o4-mini": { modalities: ["text", "image"] },
+  // Anthropic
+  "claude-sonnet-4-20250514": { modalities: ["text", "image"] },
+  "claude-3.5-sonnet": { modalities: ["text", "image"] },
+  "claude-opus-4-20250514": { modalities: ["text", "image"] },
+  "claude-3.5-haiku": { modalities: ["text", "image"] },
+  // Google
+  "gemini-2.5-pro": { modalities: ["text", "image"] },
+  "gemini-2.5-flash": { modalities: ["text", "image"] },
+  "gemini-2.0-flash": { modalities: ["text", "image"] },
+  // Zhipu GLM
+  "glm-5.1": { modalities: ["text", "image"] },
+  "glm-5-turbo": { modalities: ["text", "image"] },
+  "glm-4.7": { modalities: ["text", "image"] },
+  "glm-4.5": { modalities: ["text", "image"] },
+  "glm-4-plus": { modalities: ["text", "image"] },
+  // OpenRouter — key multimodal models
+  "anthropic/claude-sonnet-4-20250514": { modalities: ["text", "image"] },
+  "openai/gpt-4o": { modalities: ["text", "image"] },
+  "openai/gpt-4.1": { modalities: ["text", "image"] },
+  "google/gemini-2.5-pro": { modalities: ["text", "image"] },
+  "google/gemini-2.5-flash": { modalities: ["text", "image"] },
+  "qwen/qwen3-235b-a22b": { modalities: ["text", "image"] },
+  "qwen/qwen3.7-max": { modalities: ["text", "image"] },
+};
+
 async function getModels(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -534,6 +568,8 @@ async function getModels(
 
   try {
     const byName = new Map<string, { defaultModel?: string; models: Set<string> }>();
+	    const modelModalities = new Map<string, string[] | undefined>();  // provider:model -> modalities
+	    let _modelsWarmedUp = false;
     for (const { id } of listAllProviders()) {
       const resolved = resolveProvider(id);
       const set = new Set<string>(resolved?.models ?? []);
@@ -545,7 +581,7 @@ async function getModels(
       if (s.kind !== "agent" || !s.bridge || !s.bridge.getModels) continue;
       try {
         const { models } = await s.bridge.getModels();
-        for (const { model, provider } of models) {
+        for (const { model, provider, modalities } of models) {
           if (!provider || !model) continue;
           let entry = byName.get(provider);
           if (!entry) {
@@ -553,8 +589,9 @@ async function getModels(
             byName.set(provider, entry);
           }
           entry.models.add(model);
+	          if (modalities) modelModalities.set(`${provider}:${model}`, modalities);
         }
-        break;
+	        break;
       } catch {
         continue;
       }
@@ -571,7 +608,11 @@ async function getModels(
       res.end(JSON.stringify({
         provider: single,
         defaultModel: entry.defaultModel,
-        models: [...entry.models],
+        models: [...entry.models].map((id) => ({
+	        id,
+	        modalities: modelModalities.get(`${single}:${id}`)
+	          ?? MODEL_CAPABILITIES[id]?.modalities,
+	      })),
       }));
       return;
     }
@@ -579,7 +620,11 @@ async function getModels(
     const providers = [...byName].map(([name, entry]) => ({
       name,
       defaultModel: entry.defaultModel,
-      models: [...entry.models].map((id) => ({ id })),
+      models: [...entry.models].map((id) => ({
+	        id,
+	        modalities: modelModalities.get(`${name}:${id}`)
+	          ?? MODEL_CAPABILITIES[name]?.modalities,
+	      })),
     }));
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ providers }));
@@ -814,7 +859,6 @@ async function createSession(
       const name = parseFrameName(existing.replay[i]!);
       if (!name) continue;
       if (name === "agent:processing-done" || name === "agent:cancelled" || name === "agent:error") break;
-      if (name === "agent:processing-start") { hasDangling = true; break; }
     }
     if (hasDangling) {
       pushFrame(session, "agent:cancelled", sseFrame(
@@ -1387,7 +1431,12 @@ async function ptyResize(req: http.IncomingMessage, res: http.ServerResponse, se
 async function submit(req: http.IncomingMessage, res: http.ServerResponse, session: Session): Promise<void> {
   const body = await readBody(req);
   let query = "";
-  try { query = (JSON.parse(body) as { query?: string }).query ?? ""; } catch {}
+  let images: Array<{ data: string; mimeType: string }> | undefined;
+  try {
+    const parsed = JSON.parse(body) as { query?: string; images?: Array<{ data: string; mimeType: string }> };
+    query = parsed.query ?? "";
+    if (Array.isArray(parsed.images) && parsed.images.length > 0) images = parsed.images;
+  } catch {}
   if (!query.trim()) { res.statusCode = 400; res.end("empty"); return; }
 
   const meta = (name: string) => ({
@@ -1461,7 +1510,12 @@ async function submit(req: http.IncomingMessage, res: http.ServerResponse, sessi
     if (timer !== undefined) clearTimeout(timer);
   };
 
-  Promise.race([session.bridge.submit(query), timeout])
+  // Encode images into submit payload for multimodal models.
+  const submitPayload = images && images.length > 0
+    ? JSON.stringify({ query, images })
+    : query;
+
+  Promise.race([session.bridge.submit(submitPayload), timeout])
     .then((result) => {
       cleanup();
       if (result.stopReason === "queued") {

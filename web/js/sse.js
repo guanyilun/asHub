@@ -60,15 +60,16 @@ let _balanceCache = null;
 let _balanceCacheTs = 0;
 
 const updateBalanceDisplay = async () => {
-  const provider = activeSession.peek()?.agentInfo?.provider ?? "";
+  const session = activeSession.peek();
+  if (!session?.balanceEl) return;
+  const provider = session.agentInfo?.provider ?? "";
   if (provider !== "deepseek") {
-    for (const [_, s] of sessions) s.balanceEl && (s.balanceEl.hidden = true);
+    session.balanceEl.hidden = true;
     return;
   }
 
-  // Serve from cache if fresh
   if (_balanceCache && Date.now() - _balanceCacheTs < BALANCE_CACHE_TTL) {
-    renderBalance(_balanceCache);
+    renderBalance(session, _balanceCache);
     return;
   }
 
@@ -78,39 +79,44 @@ const updateBalanceDisplay = async () => {
     const data = await r.json();
     _balanceCache = data;
     _balanceCacheTs = Date.now();
-    renderBalance(data);
+    renderBalance(session, data);
   } catch {
-    const label = "💰 —";
-    for (const [_, s] of sessions) {
-      if (s.balanceEl) { s.balanceEl.textContent = label; s.balanceEl.title = "Balance unavailable"; s.balanceEl.hidden = false; }
-    }
+    session.balanceEl.textContent = "💰 —";
+    session.balanceEl.title = "Balance unavailable";
+    session.balanceEl.hidden = false;
   }
 };
 
-function renderBalance(data) {
+function renderBalance(session, data) {
+  if (!session?.balanceEl) return;
   if (!data?.is_available || !Array.isArray(data?.balance_infos) || !data.balance_infos.length) {
-    const label = "💰 —";
-    for (const [_, s] of sessions) {
-      if (s.balanceEl) { s.balanceEl.textContent = label; s.balanceEl.title = "Balance unavailable"; s.balanceEl.hidden = false; }
-    }
+    session.balanceEl.textContent = "💰 —";
+    session.balanceEl.title = "Balance unavailable";
+    session.balanceEl.hidden = false;
     return;
   }
   const info = data.balance_infos[0];
   const currency = info.currency === "CNY" ? "¥" : (info.currency ?? "");
   const total = info.total_balance ?? "—";
-  const label = `💰 ${currency}${total}`;
-  const tooltip = data.balance_infos.map((bi) => {
+  session.balanceEl.textContent = `💰 ${currency}${total}`;
+  session.balanceEl.title = data.balance_infos.map((bi) => {
     const c = bi.currency === "CNY" ? "¥" : (bi.currency ?? "");
     return `Total: ${c}${bi.total_balance ?? "—"}  |  Top-up: ${c}${bi.topped_up_balance ?? "—"}  |  Grant: ${c}${bi.granted_balance ?? "—"}`;
   }).join("\n");
-  for (const [_, s] of sessions) {
-    if (s.balanceEl) {
-      s.balanceEl.textContent = label;
-      s.balanceEl.title = tooltip;
-      s.balanceEl.hidden = false;
-    }
-  }
+  session.balanceEl.hidden = false;
 }
+
+// Hide balance on session switch, then re-show if DeepSeek.
+effect(() => {
+  activeSession.value;
+  const s = activeSession.peek();
+  if (s?.balanceEl) {
+    s.balanceEl.hidden = true;
+    // For cached sessions (SPA switch-back), agent:info won't re-fire.
+    // Use the already-loaded agentInfo to decide whether to show.
+    if (s.agentInfo?.provider === "deepseek") updateBalanceDisplay();
+  }
+});
 
 effect(() => {
   const cs = globalConnState.value;
@@ -152,6 +158,15 @@ export const handlers = {
     if (p?.provider) this.agentInfo.provider = p.provider;
     if (typeof p?.thinkingLevel === "string") this.agentInfo.thinkingLevel = p.thinkingLevel;
     if (typeof p?.thinkingSupported === "boolean") this.agentInfo.thinkingSupported = p.thinkingSupported;
+    if (Array.isArray(p?.modalities)) this.agentInfo.modalities = p.modalities;
+    // Update image upload button visibility for the active session.
+    if (this === activeSession.peek()) {
+      const btn = document.getElementById("vision-indicator");
+      if (btn) {
+        const hasVision = this.agentInfo.modalities?.includes("image") || modelSupportsImages(this.agentInfo.model, this.agentInfo.provider);
+        btn.hidden = !hasVision;
+      }
+    }
     if (typeof p?.contextWindow === "number" && p.contextWindow > 0) {
       this.state.contextWindow = p.contextWindow;
       if (this.state.lastUsage) renderUsage(this);
@@ -475,7 +490,26 @@ const refreshModelChip = (session) => {
 
 // ── Model picker dropdown ───────────────────────────────────────────
 
-let _allModelsCache = null;  // { providers: [{ name, defaultModel, models: [{id}] }] }
+let _allModelsCache = null;  // { providers: [{ name, models: [{id, modalities}] }] }
+
+// Build a quick lookup: "provider:model" -> modalities or undefined.
+const getModelCapabilities = () => {
+  if (!_allModelsCache) return null;
+  const caps = new Map();
+  for (const p of _allModelsCache.providers || []) {
+    for (const m of p.models || []) {
+      if (m.modalities) caps.set(`${p.name}:${m.id}`, m.modalities);
+    }
+  }
+  return caps;
+};
+
+// Check if the given model+provider supports image input.
+export const modelSupportsImages = (model, provider) => {
+  const caps = getModelCapabilities();
+  if (!caps) return false;
+  return caps.get(`${provider}:${model}`)?.includes("image") ?? false;
+};
 
 const toggleModelDropdown = async (session) => {
   const dropdown = session.modelDropdownEl;
